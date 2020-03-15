@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["ICEY <icey@icey.tech>"]
 edition = "2018"
 
+license-file = "LICENSE"
+description = "An semi-experimental write optimized key-value database"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
