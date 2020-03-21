@@ -16,3 +16,6 @@ Cargo.lock
 
 /target
 #Cargo.lock
+
+# 傻逼IDEA能不能不要整天问我要不要添加你那个破.idea，要不要添加你心里没点AC数吗，操你血妈
+.idea/

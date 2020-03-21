@@ -10,3 +10,6 @@ description = "An semi-experimental write optimized key-value database"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+egconf = "0.1.0"
+crc = "1.8.1"
+rand = "0.7.0"

@@ -1,3 +1,7 @@
+mod encode;
+mod error;
+mod sstable;
+
 #[cfg(test)]
 mod tests {
     #[test]
