@@ -1,6 +1,6 @@
 mod encode;
 mod error;
-mod sstable;
+mod table;
 
 #[cfg(test)]
 mod tests {
