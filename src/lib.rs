@@ -1,9 +1,7 @@
 mod encode;
 mod error;
 mod table;
-
-trait Table {
-}
+mod partition;
 
 #[cfg(test)]
 mod tests {
