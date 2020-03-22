@@ -17,8 +17,8 @@ pub(crate) struct ScTableFile {
 pub(crate) struct ScTableMeta {
     table_file: ScTableFile,
 
-    key_lower_bound: String,
-    key_upper_bound: String
+    key_lower_bound: Vec<u8>,
+    key_upper_bound: Vec<u8>
 }
 
 pub(crate) const TABLE_INDEX_SIZE: usize = 16;

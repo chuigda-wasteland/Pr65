@@ -2,6 +2,9 @@ mod encode;
 mod error;
 mod table;
 
+trait Table {
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

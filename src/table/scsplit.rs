@@ -6,6 +6,6 @@ pub(crate) struct ScSplit {
     first_kv_index: u32,
     last_kv_index: u32,
 
-    lower_bound: String,
-    upper_bound: String
+    lower_bound: Vec<u8>,
+    upper_bound: Vec<u8>
 }
