@@ -22,10 +22,14 @@ pub fn encode_fixed32(s: &mut [u8], num: u32) {
     }
 }
 
+pub fn encode_fixed32_ret(num: u32) -> [u8; 4] {
+    num.to_be_bytes()
+}
+
 #[cfg(test)]
 mod test {
     use rand::{thread_rng, Rng};
-    use crate::encode::{encode_fixed32, decode_fixed32};
+    use crate::encode::{encode_fixed32, decode_fixed32, encode_fixed32_ret};
 
     #[test]
     fn test_encode_decode_32() {
@@ -33,6 +37,15 @@ mod test {
             let number = thread_rng().gen_range(0, 0x7FFFFFFFu32);
             let mut buffer = [0u8; 4];
             encode_fixed32(&mut buffer, number);
+            assert_eq!(decode_fixed32(&buffer), number)
+        }
+    }
+
+    #[test]
+    fn test_encode_decode_32_ret() {
+        for i in 1..1024 {
+            let number = thread_rng().gen_range(0, 0x7FFFFFFFu32);
+            let mut buffer = encode_fixed32_ret( number);
             assert_eq!(decode_fixed32(&buffer), number)
         }
     }

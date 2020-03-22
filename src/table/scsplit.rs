@@ -1,7 +1,7 @@
+use crate::table::sctable::ScTableFile;
+
 pub(crate) struct ScSplit {
-    origin_partition: u32,
-    origin_level: u32,
-    origin_number: u64,
+    file: ScTableFile,
 
     first_kv_index: u32,
     last_kv_index: u32,

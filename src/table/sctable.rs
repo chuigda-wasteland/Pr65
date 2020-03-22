@@ -1,11 +1,11 @@
 use crate::error::{Error, ErrorCode, ErrorStr};
-use crate::encode::{decode_fixed32, encode_fixed32};
+use crate::encode::{decode_fixed32, encode_fixed32, encode_fixed32_ret};
 use crc::crc32;
 
-const TABLE_MAGIC: &'static [u8] = b"40490fd0";
-const TABLE_MAGIC_SIZE: usize = TABLE_MAGIC.len();
-const TABLE_HEAD_SIZE: usize = 16;
-const TABLE_MIN_SIZE: usize = TABLE_MAGIC_SIZE + TABLE_HEAD_SIZE;
+pub(crate) const TABLE_MAGIC: &'static [u8] = b"40490fd0";
+pub(crate) const TABLE_MAGIC_SIZE: usize = TABLE_MAGIC.len();
+pub(crate) const TABLE_HEAD_SIZE: usize = 16;
+pub(crate) const TABLE_MIN_SIZE: usize = TABLE_MAGIC_SIZE + TABLE_HEAD_SIZE;
 
 #[derive(Ord, Eq, PartialOrd, PartialEq, Hash, Copy, Clone)]
 pub(crate) struct ScTableFile {
@@ -21,9 +21,9 @@ pub(crate) struct ScTableMeta {
     key_upper_bound: String
 }
 
-const TABLE_INDEX_SIZE: usize = 16;
+pub(crate) const TABLE_INDEX_SIZE: usize = 16;
 
-struct ScTableIndex {
+pub(crate) struct ScTableIndex {
     key_off: u32,
     key_len: u32,
     value_off: u32,
@@ -31,8 +31,25 @@ struct ScTableIndex {
 }
 
 impl ScTableIndex {
-    fn new(key_off: u32, key_len: u32, value_off: u32, value_len: u32) -> Self {
+    pub(crate) fn new(key_off: u32, key_len: u32, value_off: u32, value_len: u32) -> Self {
         Self { key_off, key_len, value_off, value_len }
+    }
+
+    pub(crate) fn serialize(&self, dest: &mut Vec<u8>) {
+        dest.extend_from_slice(&encode_fixed32_ret(self.key_off));
+        dest.extend_from_slice(&encode_fixed32_ret(self.key_len));
+        dest.extend_from_slice(&encode_fixed32_ret(self.value_off));
+        dest.extend_from_slice(&encode_fixed32_ret(self.value_len));
+    }
+
+    pub(crate) fn deserialize(from: &[u8]) -> Self {
+        debug_assert_eq!(from.len(), TABLE_INDEX_SIZE);
+        Self {
+            key_off: decode_fixed32(&from[0..4]),
+            key_len: decode_fixed32(&from[4..8]),
+            value_off: decode_fixed32(&from[8..12]),
+            value_len: decode_fixed32(&from[12..16]),
+        }
     }
 }
 
@@ -79,16 +96,12 @@ impl ScTable {
         let mut indexes = Vec::new();
         for i in 0..kv_index_size / TABLE_INDEX_SIZE {
             let base = i * TABLE_INDEX_SIZE;
-            let key_off = decode_fixed32(&kv_index[base .. base+4]);
-            let key_len = decode_fixed32(&kv_index[base+4 .. base+8]);
-            let value_off = decode_fixed32(&kv_index[base+8 .. base+12]);
-            let value_len = decode_fixed32(&kv_index[base+12 .. base+16]);
-            if (key_off + key_len) as usize >= data.len()
-                || (value_off + value_len) as usize >= data.len() {
+            let index = ScTableIndex::deserialize(&kv_index[base..base + TABLE_INDEX_SIZE]);
+            if (index.key_off + index.key_len) as usize >= data.len()
+                || (index.value_off + index.value_len) as usize >= data.len() {
                 return Err(Error::sc_table_corrupt("incorrect key/value index data".into()))
             }
-
-            indexes.push(ScTableIndex::new(key_off, key_len, value_off, value_len))
+            indexes.push(index)
         }
 
         Ok(Self { indexes, data: data.to_vec() })
