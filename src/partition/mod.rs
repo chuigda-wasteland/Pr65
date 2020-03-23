@@ -41,6 +41,9 @@ impl<Comp: Comparator> Eq for UserKey<Comp> {}
 type MemTable<Comp> = BTreeMap<UserKey<Comp>, Vec<u8>>;
 
 struct Partition<'a, Comp: Comparator> {
+    lower_bound: RwLock<Vec<u8>>,
+    upper_bound: RwLock<Vec<u8>>,
+
     mem_table: RwLock<MemTable<Comp>>,
     imm_table: Mutex<Option<MemTable<Comp>>>,
     levels: Vec<Vec<Box<dyn Table<Comp>>>>,
@@ -49,12 +52,16 @@ struct Partition<'a, Comp: Comparator> {
 }
 
 impl<'a, Comp: Comparator> Partition<'a, Comp> {
-    pub(crate) fn new(mem_table: MemTable<Comp>,
+    pub(crate) fn new(lower_bound: Vec<u8>,
+                      upper_bound: Vec<u8>,
+                      mem_table: MemTable<Comp>,
                       imm_table: MemTable<Comp>,
                       levels: Vec<Vec<Box<dyn Table<Comp>>>>,
                       cache_manager: &'a Mutex<TableCacheManager>,
                       io_manager: &'a IOManager) -> Self {
         Self {
+            lower_bound: RwLock::new(lower_bound),
+            upper_bound: RwLock::new(upper_bound),
             mem_table: RwLock::new(mem_table),
             imm_table: Mutex::new(Some(imm_table)),
             levels,
@@ -62,4 +69,21 @@ impl<'a, Comp: Comparator> Partition<'a, Comp> {
             io_manager
         }
     }
+
+    pub(crate) fn explode(self) -> (Partition<'a, Comp>, Partition<'a, Comp>) {
+        debug_assert!(self.imm_table.lock().unwrap().is_none());
+        unimplemented!()
+    }
 }
+
+impl<'a, Comp: Comparator> PartialEq for Partition<'a, Comp> {
+    fn eq(&self, other: &Self) -> bool {
+        unsafe {
+            debug_assert_ne!(self as *const Partition<'a, Comp> as *const (),
+                             other as *const Partition<'a, Comp> as *const ())
+        }
+        false
+    }
+}
+
+impl<'a, Comp: Comparator> Eq for Partition<'a, Comp> {}
