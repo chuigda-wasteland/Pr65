@@ -1,4 +1,3 @@
-use std::fmt::{Display, Formatter, Error};
 use crate::table::sctable::{ScTableIndex, TABLE_MAGIC};
 use crate::table::sctable::{TABLE_MIN_SIZE, TABLE_INDEX_SIZE};
 use crate::encode::{encode_fixed32_ret, encode_fixed32};

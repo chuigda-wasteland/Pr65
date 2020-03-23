@@ -1,6 +1,4 @@
 use std::u32;
-use std::u64;
-use std::ops::{Shl, Shr};
 
 pub fn decode_fixed32(s: &[u8]) -> u32 {
     debug_assert_eq!(s.len(), 4);

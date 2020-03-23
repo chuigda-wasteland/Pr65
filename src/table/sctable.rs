@@ -1,4 +1,4 @@
-use crate::error::{Error, ErrorCode, ErrorStr};
+use crate::error::{Error};
 use crate::encode::{decode_fixed32, encode_fixed32, encode_fixed32_ret};
 use crc::crc32;
 
