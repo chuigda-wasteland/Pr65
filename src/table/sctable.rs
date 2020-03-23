@@ -1,6 +1,10 @@
 use crate::error::{Error};
 use crate::encode::{decode_fixed32, encode_fixed32, encode_fixed32_ret};
 use crc::crc32;
+use crate::table::Table;
+use crate::table::cache::TableCacheManager;
+use crate::Comparator;
+use crate::io::IOManager;
 
 pub(crate) const TABLE_MAGIC: &'static [u8] = b"40490fd0";
 pub(crate) const TABLE_MAGIC_SIZE: usize = TABLE_MAGIC.len();
@@ -19,6 +23,19 @@ pub(crate) struct ScTableMeta {
 
     key_lower_bound: Vec<u8>,
     key_upper_bound: Vec<u8>
+}
+
+impl<Comp: Comparator> Table<Comp> for ScTableMeta {
+    fn get<'a>(&self,
+               key: &[u8],
+               cache_manager: &'a mut TableCacheManager,
+               io_manager: &'a IOManager) -> Result<&'a [u8], Error> {
+        unimplemented!()
+    }
+
+    fn is_lazy(&self) -> bool {
+        false
+    }
 }
 
 pub(crate) const TABLE_INDEX_SIZE: usize = 16;

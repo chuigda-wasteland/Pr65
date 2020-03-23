@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use crate::Comparator;
 use std::marker::PhantomData;
 use std::cmp::Ordering;
+use crate::io::IOManager;
 
 pub(crate) struct UserKey<Comp: Comparator> {
     key: Vec<u8>,
@@ -43,19 +44,22 @@ struct Partition<'a, Comp: Comparator> {
     mem_table: RwLock<MemTable<Comp>>,
     imm_table: Mutex<Option<MemTable<Comp>>>,
     levels: Vec<Vec<Box<dyn Table<Comp>>>>,
-    cache_manager: &'a Mutex<TableCacheManager>
+    cache_manager: &'a Mutex<TableCacheManager>,
+    io_manager: &'a IOManager
 }
 
 impl<'a, Comp: Comparator> Partition<'a, Comp> {
     pub(crate) fn new(mem_table: MemTable<Comp>,
-           imm_table: MemTable<Comp>,
-           levels: Vec<Vec<Box<dyn Table<Comp>>>>,
-           cache_manager: &'a Mutex<TableCacheManager>) -> Self {
+                      imm_table: MemTable<Comp>,
+                      levels: Vec<Vec<Box<dyn Table<Comp>>>>,
+                      cache_manager: &'a Mutex<TableCacheManager>,
+                      io_manager: &'a IOManager) -> Self {
         Self {
             mem_table: RwLock::new(mem_table),
             imm_table: Mutex::new(Some(imm_table)),
             levels,
-            cache_manager
+            cache_manager,
+            io_manager
         }
     }
 }

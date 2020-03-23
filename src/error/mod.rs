@@ -1,15 +1,10 @@
 use std::fmt::{Debug, Display, Formatter};
 
 #[derive(Debug)]
-pub enum ErrorCode {
-    ScTableCorruption = 0x01,
-}
-
-#[derive(Debug)]
-pub struct Error {
-    error_code: ErrorCode,
-    reason: ErrorStr,
-    fatal: bool
+pub enum Error {
+    ScTableCorrupt { reason: ErrorStr },
+    ScSplitCorrupt { reason: ErrorStr },
+    IOError { reason: ErrorStr, file: String }
 }
 
 #[derive(Debug)]
@@ -32,11 +27,15 @@ impl From<&'static str> for ErrorStr {
 
 impl Error {
     pub(crate) fn sc_table_corrupt(reason: ErrorStr) -> Self {
-        Self {
-            error_code: ErrorCode::ScTableCorruption,
-            reason,
-            fatal: false
-        }
+        Error::ScTableCorrupt { reason }
+    }
+
+    pub(crate) fn sc_split_corrupt(reason: ErrorStr) -> Self {
+        Error::ScSplitCorrupt { reason }
+    }
+
+    pub(crate) fn io_error(reason: ErrorStr, file: String) -> Self {
+        Error::IOError { reason, file }
     }
 }
 
