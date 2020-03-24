@@ -2,7 +2,7 @@ use crate::error::{Error};
 use crate::encode::{decode_fixed32, encode_fixed32, encode_fixed32_ret};
 use crc::crc32;
 use crate::table::Table;
-use crate::table::cache::TableCacheManager;
+use crate::table::cache::{TableCacheManager, CacheQuota};
 use crate::Comparator;
 use crate::io::IOManager;
 
@@ -70,13 +70,14 @@ impl ScTableIndex {
     }
 }
 
-pub(crate) struct ScTable {
+pub(crate) struct ScTable<'a> {
     indexes: Vec<ScTableIndex>,
-    data: Vec<u8>
+    data: Vec<u8>,
+    quota: CacheQuota<'a>
 }
 
-impl ScTable {
-    pub(crate) fn from_raw(raw: &[u8]) -> Result<ScTable, Error> {
+impl<'a> ScTable<'a> {
+    pub(crate) fn from_raw(raw: &[u8], quota: CacheQuota<'a>) -> Result<ScTable<'a>, Error> {
         if raw.len() < TABLE_MIN_SIZE {
             return Err(Error::sc_table_corrupt("too small to be a table file".into()))
         }
@@ -121,6 +122,6 @@ impl ScTable {
             indexes.push(index)
         }
 
-        Ok(Self { indexes, data: data.to_vec() })
+        Ok(Self { indexes, data: data.to_vec(), quota })
     }
 }
