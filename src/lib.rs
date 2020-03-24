@@ -66,7 +66,7 @@ pub struct ScottDB<'a, Comp: Comparator> {
 
     options: Options,
     partitions: VecDeque<Partition<'a, Comp>>,
-    cache_manager: Mutex<TableCacheManager>,
+    cache_manager: TableCacheManager<'a>,
     io_manager: IOManager
 }
 
@@ -78,7 +78,7 @@ impl<'a, Comp: Comparator> ScottDB<'a, Comp> {
             phantom: PhantomData,
             options,
             partitions: VecDeque::new(),
-            cache_manager: Mutex::new(TableCacheManager::new(cache_count)),
+            cache_manager: TableCacheManager::new(cache_count),
             io_manager: IOManager::new(max_open_files)
         }
     }

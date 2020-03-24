@@ -47,7 +47,7 @@ pub(crate) struct Partition<'a, Comp: Comparator> {
     mem_table: RwLock<MemTable<Comp>>,
     imm_table: Mutex<Option<MemTable<Comp>>>,
     levels: Vec<Vec<Box<dyn Table<Comp>>>>,
-    cache_manager: &'a Mutex<TableCacheManager>,
+    cache_manager: &'a TableCacheManager<'a>,
     io_manager: &'a IOManager
 }
 
@@ -57,7 +57,7 @@ impl<'a, Comp: Comparator> Partition<'a, Comp> {
                       mem_table: MemTable<Comp>,
                       imm_table: MemTable<Comp>,
                       levels: Vec<Vec<Box<dyn Table<Comp>>>>,
-                      cache_manager: &'a Mutex<TableCacheManager>,
+                      cache_manager: &'a TableCacheManager<'a>,
                       io_manager: &'a IOManager) -> Self {
         Self {
             lower_bound: RwLock::new(lower_bound),
