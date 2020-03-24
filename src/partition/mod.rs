@@ -40,7 +40,7 @@ impl<Comp: Comparator> Eq for UserKey<Comp> {}
 
 type MemTable<Comp> = BTreeMap<UserKey<Comp>, Vec<u8>>;
 
-struct Partition<'a, Comp: Comparator> {
+pub(crate) struct Partition<'a, Comp: Comparator> {
     lower_bound: RwLock<Vec<u8>>,
     upper_bound: RwLock<Vec<u8>>,
 
@@ -76,12 +76,36 @@ impl<'a, Comp: Comparator> Partition<'a, Comp> {
     }
 }
 
+impl<'a, Comp: Comparator> PartialOrd for Partition<'a, Comp> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if Comp::compare(&self.upper_bound.read().unwrap(),
+                         &other.lower_bound.read().unwrap()) == Ordering::Less {
+            return Some(Ordering::Less)
+        } else if Comp::compare(&other.upper_bound.read().unwrap(),
+                                &self.lower_bound.read().unwrap()) == Ordering::Less {
+            return Some(Ordering::Greater)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a, Comp: Comparator> Ord for Partition<'a, Comp> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
 impl<'a, Comp: Comparator> PartialEq for Partition<'a, Comp> {
     fn eq(&self, other: &Self) -> bool {
         unsafe {
             debug_assert_ne!(self as *const Partition<'a, Comp> as *const (),
-                             other as *const Partition<'a, Comp> as *const ())
+                             other as *const Partition<'a, Comp> as *const ());
         }
+        debug_assert_ne!(Comp::compare(&self.lower_bound.read().unwrap(),
+                                       &other.lower_bound.read().unwrap()), Ordering::Equal);
+        debug_assert_ne!(Comp::compare(&self.upper_bound.read().unwrap(),
+                                       &other.upper_bound.read().unwrap()), Ordering::Equal);
         false
     }
 }
