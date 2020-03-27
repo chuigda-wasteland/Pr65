@@ -4,6 +4,7 @@ use crate::table::Table;
 use crate::table::cache::TableCacheManager;
 use crate::io::IOManager;
 use crate::error;
+use std::cmp::Ordering;
 
 pub(crate) struct ScSplit {
     file: ScTableFile,
@@ -18,9 +19,17 @@ pub(crate) struct ScSplit {
 impl<Comp: Comparator> Table<Comp> for ScSplit {
     fn get<'a>(&self,
                key: &[u8],
-               cache_manager: &'a mut TableCacheManager,
+               cache_manager: &'a TableCacheManager,
                io_manager: &'a IOManager) -> Result<&'a [u8], error::Error> {
         unimplemented!()
+    }
+
+    fn lower_bound(&self) -> &[u8] {
+        &self.lower_bound
+    }
+
+    fn upper_bound(&self) -> &[u8] {
+        &self.upper_bound
     }
 
     fn is_lazy(&self) -> bool {

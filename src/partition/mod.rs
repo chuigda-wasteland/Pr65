@@ -6,21 +6,33 @@ use crate::Comparator;
 use std::marker::PhantomData;
 use std::cmp::Ordering;
 use crate::io::IOManager;
+use crate::error::Error;
 
-pub(crate) struct UserKey<Comp: Comparator> {
-    key: Vec<u8>,
-    phantom: PhantomData<Comp>
+pub(crate) enum UserKey<Comp: Comparator> {
+    Owned(Vec<u8>, PhantomData<Comp>),
+    Borrow(*const [u8])
 }
 
 impl<Comp: Comparator> UserKey<Comp> {
-    fn new(key: Vec<u8>) -> Self {
-        Self { key, phantom: PhantomData }
+    fn new_owned(vec: Vec<u8>) -> Self {
+        UserKey::Owned(vec, PhantomData)
+    }
+
+    fn new_borrow(slice: &[u8]) -> Self {
+        UserKey::Borrow(slice as *const [u8])
+    }
+
+    fn key(&self) -> &[u8]{
+        match self {
+            UserKey::Owned(k, _) => k.as_slice(),
+            &UserKey::Borrow(b) => unsafe { b.as_ref().unwrap() }
+        }
     }
 }
 
 impl<Comp: Comparator> Ord for UserKey<Comp> {
     fn cmp(&self, other: &Self) -> Ordering {
-        Comp::compare(&self.key, &other.key)
+        Comp::compare(&self.key(), &other.key())
     }
 }
 
@@ -40,6 +52,8 @@ impl<Comp: Comparator> Eq for UserKey<Comp> {}
 
 type MemTable<Comp> = BTreeMap<UserKey<Comp>, Vec<u8>>;
 
+type Level<Comp> = Vec<Box<dyn Table<Comp>>>;
+
 pub(crate) struct Partition<'a, Comp: Comparator> {
     lower_bound: RwLock<Vec<u8>>,
     upper_bound: RwLock<Vec<u8>>,
@@ -49,6 +63,39 @@ pub(crate) struct Partition<'a, Comp: Comparator> {
     levels: Vec<Vec<Box<dyn Table<Comp>>>>,
     cache_manager: &'a TableCacheManager<'a>,
     io_manager: &'a IOManager
+}
+
+impl<'a, Comp: Comparator> Partition<'a, Comp> {
+    fn level_get(level: &Level<Comp>, key: &[u8],
+                 cache_manager: &'a TableCacheManager<'a>,
+                 io_manager: &'a IOManager) -> Result<Option<Vec<u8>>, Error> {
+        if let Ok(idx) = level.binary_search_by(|table| table.cmp_key(key)) {
+            level[idx].get(key, cache_manager, io_manager).and_then(
+                |slice| Ok(Some(slice.to_vec()))
+            )
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub(crate) fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+        if Comp::compare(key, &self.lower_bound.read().unwrap()) == Ordering::Less {
+            return Ok(None)
+        } else if Comp::compare(key, &self.upper_bound.read().unwrap()) == Ordering::Greater {
+            return Ok(None)
+        }
+
+        let user_key = UserKey::new_borrow(key);
+        if let Some(v) = self.mem_table.read().unwrap().get(&user_key) {
+            return Ok(Some(v.clone()))
+        }
+        if let Some(v) = self.imm_table.lock().unwrap().as_ref().and_then(
+            |imm_table| imm_table.get(&user_key).and_then(|v| Some(v.clone()))) {
+            return Ok(Some(v))
+        }
+
+        Ok(None)
+    }
 }
 
 impl<'a, Comp: Comparator> Partition<'a, Comp> {

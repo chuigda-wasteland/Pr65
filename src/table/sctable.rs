@@ -5,6 +5,7 @@ use crate::table::Table;
 use crate::table::cache::{TableCacheManager, CacheQuota};
 use crate::Comparator;
 use crate::io::IOManager;
+use std::cmp::Ordering;
 
 pub(crate) const TABLE_MAGIC: &'static [u8] = b"40490fd0";
 pub(crate) const TABLE_MAGIC_SIZE: usize = TABLE_MAGIC.len();
@@ -28,9 +29,17 @@ pub(crate) struct ScTableMeta {
 impl<Comp: Comparator> Table<Comp> for ScTableMeta {
     fn get<'a>(&self,
                key: &[u8],
-               cache_manager: &'a mut TableCacheManager,
+               cache_manager: &'a TableCacheManager,
                io_manager: &'a IOManager) -> Result<&'a [u8], Error> {
         unimplemented!()
+    }
+
+    fn lower_bound(&self) -> &[u8] {
+        &self.key_lower_bound
+    }
+
+    fn upper_bound(&self) -> &[u8] {
+        &self.key_upper_bound
     }
 
     fn is_lazy(&self) -> bool {
