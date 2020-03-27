@@ -14,7 +14,7 @@ pub(crate) trait Table<Comp: Comparator> {
     fn get<'a>(&self,
                key: &[u8],
                cache_manager: &'a TableCacheManager,
-               io_manager: &'a IOManager) -> Result<Option<&'a [u8]>, error::Error>;
+               io_manager: &'a IOManager) -> Result<Option<Vec<u8>>, error::Error>;
 
     fn cmp_key(&self, key: &[u8]) -> Ordering {
         if Comp::compare(key, &self.lower_bound()) == Ordering::Less {
