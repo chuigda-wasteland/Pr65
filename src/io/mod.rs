@@ -1,8 +1,9 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::fs::File;
-use crate::error;
 use std::error::Error;
 use std::io::{Read, Write};
+
+use crate::error;
 
 pub(crate) struct IOManager {
     open_files: AtomicUsize,

@@ -4,7 +4,7 @@ use std::ops::Deref;
 
 use lru::LruCache;
 
-use crate::table::sctable::{ScTableFile, ScTable};
+use crate::table::sctable::{ScTableFile, ScTableCache};
 
 pub(crate) struct CacheQuota<'a> {
     cache_manager: &'a TableCacheManager<'a>
@@ -23,7 +23,7 @@ impl<'a> Drop for CacheQuota<'a> {
 }
 
 pub(crate) struct TableCacheManager<'a> {
-    lru: Mutex<LruCache<ScTableFile, Arc<ScTable<'a>>>>,
+    lru: Mutex<LruCache<ScTableFile, Arc<ScTableCache<'a>>>>,
     cache_count: usize,
     current_cache_count: AtomicUsize
 }
@@ -44,13 +44,13 @@ impl<'a> TableCacheManager<'a> {
         CacheQuota::new(self)
     }
 
-    pub(crate) fn add_cache(&'a self, table_file: ScTableFile, table_cache: ScTable<'a>) -> Arc<ScTable<'a>> {
+    pub(crate) fn add_cache(&'a self, table_file: ScTableFile, table_cache: ScTableCache<'a>) -> Arc<ScTableCache<'a>> {
         let ret = Arc::new(table_cache);
         self.lru.lock().unwrap().put(table_file, ret.clone());
         ret
     }
 
-    pub(crate) fn get_cache(&'a self, table_file: ScTableFile) -> Option<Arc<ScTable<'a>>> {
+    pub(crate) fn get_cache(&'a self, table_file: ScTableFile) -> Option<Arc<ScTableCache<'a>>> {
         self.lru.lock().unwrap().get(&table_file).and_then(|arc| Some(arc.clone()))
     }
 

@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
-use crate::table::Table;
-use crate::table::cache::TableCacheManager;
 use std::sync::{Arc, Mutex, RwLock};
-use crate::Comparator;
 use std::marker::PhantomData;
 use std::cmp::Ordering;
+
+use crate::Comparator;
+use crate::table::Table;
+use crate::table::cache::TableCacheManager;
 use crate::io::IOManager;
 use crate::error::Error;
 
@@ -66,15 +67,34 @@ pub(crate) struct Partition<'a, Comp: Comparator> {
 }
 
 impl<'a, Comp: Comparator> Partition<'a, Comp> {
-    fn level_get(level: &Level<Comp>, key: &[u8],
+    fn level0_get(level: &Level<Comp>,
+                  key: &[u8],
+                  cache_manager: &'a TableCacheManager<'a>,
+                  io_manager: &'a IOManager) -> Result<Option<&'a [u8]>, Error> {
+        for table in level.iter() {
+            if let Some(v) = table.get(key, cache_manager, io_manager)? {
+                return Ok(Some(v))
+            }
+        }
+        Ok(None)
+    }
+
+    fn level_get(level: &Level<Comp>,
+                 key: &[u8],
                  cache_manager: &'a TableCacheManager<'a>,
-                 io_manager: &'a IOManager) -> Result<Option<Vec<u8>>, Error> {
+                 io_manager: &'a IOManager) -> Result<Option<&'a [u8]>, Error> {
         if let Ok(idx) = level.binary_search_by(|table| table.cmp_key(key)) {
-            level[idx].get(key, cache_manager, io_manager).and_then(
-                |slice| Ok(Some(slice.to_vec()))
-            )
+            Ok(level[idx].get(key, cache_manager, io_manager)?)
         } else {
             Ok(None)
+        }
+    }
+
+    fn convert_deletion_mark(slice: &[u8]) -> Option<Vec<u8>> {
+        if slice.len() == 0 {
+            None
+        } else {
+            Some(slice.to_vec())
         }
     }
 
@@ -87,11 +107,23 @@ impl<'a, Comp: Comparator> Partition<'a, Comp> {
 
         let user_key = UserKey::new_borrow(key);
         if let Some(v) = self.mem_table.read().unwrap().get(&user_key) {
-            return Ok(Some(v.clone()))
+            return Ok(Self::convert_deletion_mark(v));
         }
         if let Some(v) = self.imm_table.lock().unwrap().as_ref().and_then(
-            |imm_table| imm_table.get(&user_key).and_then(|v| Some(v.clone()))) {
-            return Ok(Some(v))
+            |imm_table| imm_table.get(&user_key)) {
+            return Ok(Self::convert_deletion_mark(v));
+        }
+
+        if self.levels.len() >= 1 {
+            if let Some(v) = Self::level0_get(&self.levels[0], key, self.cache_manager, self.io_manager)? {
+                return Ok(Self::convert_deletion_mark(v));
+            }
+        }
+
+        for level in &self.levels[1..] {
+            if let Some(v) = Self::level_get(level, key, self.cache_manager, self.io_manager)? {
+                return Ok(Self::convert_deletion_mark(v));
+            }
         }
 
         Ok(None)

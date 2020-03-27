@@ -4,16 +4,17 @@ pub(crate) mod cache;
 mod sctable;
 mod scsplit;
 
+use std::cmp::Ordering;
+
 use crate::{Comparator, error};
 use crate::io::IOManager;
 use crate::table::cache::TableCacheManager;
-use std::cmp::Ordering;
 
 pub(crate) trait Table<Comp: Comparator> {
     fn get<'a>(&self,
                key: &[u8],
                cache_manager: &'a TableCacheManager,
-               io_manager: &'a IOManager) -> Result<&'a [u8], error::Error>;
+               io_manager: &'a IOManager) -> Result<Option<&'a [u8]>, error::Error>;
 
     fn cmp_key(&self, key: &[u8]) -> Ordering {
         if Comp::compare(key, &self.lower_bound()) == Ordering::Less {

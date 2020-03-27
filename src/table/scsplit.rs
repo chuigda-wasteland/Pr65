@@ -1,10 +1,11 @@
+use std::cmp::Ordering;
+
 use crate::table::sctable::ScTableFile;
 use crate::Comparator;
 use crate::table::Table;
 use crate::table::cache::TableCacheManager;
 use crate::io::IOManager;
 use crate::error;
-use std::cmp::Ordering;
 
 pub(crate) struct ScSplit {
     file: ScTableFile,
@@ -20,7 +21,7 @@ impl<Comp: Comparator> Table<Comp> for ScSplit {
     fn get<'a>(&self,
                key: &[u8],
                cache_manager: &'a TableCacheManager,
-               io_manager: &'a IOManager) -> Result<&'a [u8], error::Error> {
+               io_manager: &'a IOManager) -> Result<Option<&'a [u8]>, error::Error> {
         unimplemented!()
     }
 

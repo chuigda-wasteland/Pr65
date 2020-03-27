@@ -1,11 +1,13 @@
+use std::cmp::Ordering;
+
+use crc::crc32;
+
 use crate::error::{Error};
 use crate::encode::{decode_fixed32, encode_fixed32, encode_fixed32_ret};
-use crc::crc32;
 use crate::table::Table;
 use crate::table::cache::{TableCacheManager, CacheQuota};
 use crate::Comparator;
 use crate::io::IOManager;
-use std::cmp::Ordering;
 
 pub(crate) const TABLE_MAGIC: &'static [u8] = b"40490fd0";
 pub(crate) const TABLE_MAGIC_SIZE: usize = TABLE_MAGIC.len();
@@ -30,7 +32,7 @@ impl<Comp: Comparator> Table<Comp> for ScTableMeta {
     fn get<'a>(&self,
                key: &[u8],
                cache_manager: &'a TableCacheManager,
-               io_manager: &'a IOManager) -> Result<&'a [u8], Error> {
+               io_manager: &'a IOManager) -> Result<Option<&'a [u8]>, Error> {
         unimplemented!()
     }
 
@@ -79,14 +81,14 @@ impl ScTableIndex {
     }
 }
 
-pub(crate) struct ScTable<'a> {
+pub(crate) struct ScTableCache<'a> {
     indexes: Vec<ScTableIndex>,
     data: Vec<u8>,
     quota: CacheQuota<'a>
 }
 
-impl<'a> ScTable<'a> {
-    pub(crate) fn from_raw(raw: &[u8], quota: CacheQuota<'a>) -> Result<ScTable<'a>, Error> {
+impl<'a> ScTableCache<'a> {
+    pub(crate) fn from_raw(raw: &[u8], quota: CacheQuota<'a>) -> Result<ScTableCache<'a>, Error> {
         if raw.len() < TABLE_MIN_SIZE {
             return Err(Error::sc_table_corrupt("too small to be a table file".into()))
         }
