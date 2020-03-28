@@ -1,6 +1,6 @@
 use crc::crc32;
 
-use crate::table::tablefmt::{TABLE_MAGIC, TABLE_MIN_SIZE, TABLE_INDEX_SIZE};
+use crate::table::tablefmt::{TABLE_MAGIC, TABLE_MIN_SIZE, TABLE_CATALOG_ITEM_SIZE};
 use crate::encode::{encode_fixed32_ret, encode_fixed32};
 use crate::table::cache::ScTableCatalogItem;
 
@@ -34,7 +34,7 @@ impl ScTableBuilder {
 
     pub(crate) fn build(&self) -> Vec<u8> {
         let mut ret = Vec::with_capacity(self.size());
-        ret.extend_from_slice(&encode_fixed32_ret((self.indexes.len() * TABLE_INDEX_SIZE) as u32));
+        ret.extend_from_slice(&encode_fixed32_ret((self.indexes.len() * TABLE_CATALOG_ITEM_SIZE) as u32));
         ret.extend_from_slice(&encode_fixed32_ret(self.data.len() as u32));
         for _ in 0..4 {
             ret.push(0)
@@ -50,6 +50,6 @@ impl ScTableBuilder {
     }
 
     pub(crate) fn size(&self) -> usize {
-        TABLE_MIN_SIZE + self.indexes.len() * TABLE_INDEX_SIZE + self.data.len()
+        TABLE_MIN_SIZE + self.indexes.len() * TABLE_CATALOG_ITEM_SIZE + self.data.len()
     }
 }

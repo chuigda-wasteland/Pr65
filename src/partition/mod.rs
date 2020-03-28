@@ -4,11 +4,12 @@ use std::marker::PhantomData;
 use std::cmp::Ordering;
 use std::ptr::NonNull;
 
-use crate::Comparator;
-use crate::table::Table;
+use crate::{Comparator, Options};
+use crate::table::{Table, tablefmt::{TABLE_CATALOG_ITEM_SIZE, TABLE_MIN_SIZE}};
 use crate::table::cache::TableCacheManager;
 use crate::io::IOManager;
 use crate::error::Error;
+use std::ops::Deref;
 
 pub(crate) enum UserKey<Comp: Comparator> {
     Owned(Vec<u8>, PhantomData<Comp>),
@@ -61,10 +62,13 @@ pub(crate) struct Partition<'a, Comp: Comparator> {
     upper_bound: RwLock<Vec<u8>>,
 
     mem_table: RwLock<MemTable<Comp>>,
+    mem_table_data_size: RwLock<usize>,
+
     imm_table: Mutex<Option<MemTable<Comp>>>,
     levels: Vec<Level<Comp>>,
     cache_manager: &'a TableCacheManager<'a>,
-    io_manager: &'a IOManager
+    io_manager: &'a IOManager,
+    options: NonNull<Options>
 }
 
 impl<'a, Comp: Comparator> Partition<'a, Comp> {
@@ -100,8 +104,11 @@ impl<'a, Comp: Comparator> Partition<'a, Comp> {
 
     pub(crate) fn put(&self, key: &[u8], value: &[u8]) -> Result<(), Error> {
         self.mem_table.write().unwrap().insert(UserKey::new_owned(key.to_vec()), value.to_vec());
+        *self.mem_table_data_size .write().unwrap() += key.len() + value.len();
 
-        unimplemented!("The merging");
+        if self.estimate_memtable_size() >= self.options().table_size {
+            unimplemented!("dumping and merging")
+        }
 
         if Comp::compare(key, &self.lower_bound.read().unwrap()) == Ordering::Less {
             self.lower_bound.write().unwrap().copy_from_slice(value);
@@ -110,6 +117,10 @@ impl<'a, Comp: Comparator> Partition<'a, Comp> {
         }
 
         Ok(())
+    }
+
+    pub(crate) fn options(&self) -> &Options {
+        unsafe { self.options.as_ref() }
     }
 
     fn level0_get(level: &Level<Comp>,
@@ -142,6 +153,12 @@ impl<'a, Comp: Comparator> Partition<'a, Comp> {
             Some(slice.to_vec())
         }
     }
+
+    fn estimate_memtable_size(&self) -> usize {
+        self.mem_table_data_size.read().unwrap().deref()
+        + self.mem_table.read().unwrap().len() * TABLE_CATALOG_ITEM_SIZE
+        + TABLE_MIN_SIZE
+    }
 }
 
 impl<'a, Comp: Comparator> Partition<'a, Comp> {
@@ -151,15 +168,18 @@ impl<'a, Comp: Comparator> Partition<'a, Comp> {
                       imm_table: MemTable<Comp>,
                       levels: Vec<Vec<Box<dyn Table<Comp>>>>,
                       cache_manager: &'a TableCacheManager<'a>,
-                      io_manager: &'a IOManager) -> Self {
+                      io_manager: &'a IOManager,
+                      options: &Options) -> Self {
         Self {
             lower_bound: RwLock::new(lower_bound),
             upper_bound: RwLock::new(upper_bound),
             mem_table: RwLock::new(mem_table),
+            mem_table_data_size: RwLock::new(0),
             imm_table: Mutex::new(Some(imm_table)),
             levels,
             cache_manager,
-            io_manager
+            io_manager,
+            options: unsafe { NonNull::new_unchecked(options as *const Options as _) }
         }
     }
 

@@ -7,7 +7,7 @@ use crc::crc32;
 use crate::table::sctable::ScTableFile;
 
 use crate::table::tablefmt::{TABLE_MIN_SIZE, TABLE_MAGIC_SIZE, TABLE_MAGIC,
-                             TABLE_INDEX_SIZE, TABLE_HEAD_SIZE};
+                             TABLE_CATALOG_ITEM_SIZE, TABLE_HEAD_SIZE};
 use crate::encode::{encode_fixed32_ret, decode_fixed32};
 use crate::error::Error;
 use crate::Comparator;
@@ -32,7 +32,7 @@ impl ScTableCatalogItem {
     }
 
     pub(crate) fn deserialize(from: &[u8]) -> Self {
-        debug_assert_eq!(from.len(), TABLE_INDEX_SIZE);
+        debug_assert_eq!(from.len(), TABLE_CATALOG_ITEM_SIZE);
         Self {
             key_off: decode_fixed32(&from[0..4]),
             key_len: decode_fixed32(&from[4..8]),
@@ -62,7 +62,7 @@ impl<'a> ScTableCache<'a> {
         let kv_catalog_size = decode_fixed32(&raw[0..4]) as usize;
         let data_size = decode_fixed32(&raw[4..8]) as usize;
 
-        if kv_catalog_size % TABLE_INDEX_SIZE != 0 {
+        if kv_catalog_size % TABLE_CATALOG_ITEM_SIZE != 0 {
             return Err(Error::sc_table_corrupt("catalog size should be multiplication of 16".into()))
         }
 
@@ -85,10 +85,10 @@ impl<'a> ScTableCache<'a> {
         }
 
         let mut catalog_item = Vec::new();
-        for i in 0..kv_catalog_size / TABLE_INDEX_SIZE {
-            let base = i * TABLE_INDEX_SIZE;
+        for i in 0..kv_catalog_size / TABLE_CATALOG_ITEM_SIZE {
+            let base = i * TABLE_CATALOG_ITEM_SIZE;
             let index =
-                ScTableCatalogItem::deserialize(&kv_catalog[base..base + TABLE_INDEX_SIZE]);
+                ScTableCatalogItem::deserialize(&kv_catalog[base..base + TABLE_CATALOG_ITEM_SIZE]);
             if (index.key_off + index.key_len) as usize >= data.len()
                 || (index.value_off + index.value_len) as usize >= data.len() {
                 return Err(Error::sc_table_corrupt("incorrect key/value catalog data".into()))
