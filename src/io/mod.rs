@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::fs::File;
 use std::io::{Read, Write};
 use std_semaphore::Semaphore;

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::{Mutex, RwLock};
 use std::marker::PhantomData;
 use std::cmp::Ordering;
-use std::ops::DerefMut;
+use std::ptr::NonNull;
 
 use crate::Comparator;
 use crate::table::Table;
@@ -12,7 +12,7 @@ use crate::error::Error;
 
 pub(crate) enum UserKey<Comp: Comparator> {
     Owned(Vec<u8>, PhantomData<Comp>),
-    Borrow(*const [u8])
+    Borrow(NonNull<[u8]>)
 }
 
 impl<Comp: Comparator> UserKey<Comp> {
@@ -21,13 +21,13 @@ impl<Comp: Comparator> UserKey<Comp> {
     }
 
     fn new_borrow(slice: &[u8]) -> Self {
-        UserKey::Borrow(slice as *const [u8])
+        UserKey::Borrow(unsafe { NonNull::new_unchecked(slice as *const [u8] as _) })
     }
 
     fn key(&self) -> &[u8]{
         match self {
             UserKey::Owned(k, _) => k.as_slice(),
-            &UserKey::Borrow(b) => unsafe { b.as_ref().unwrap() }
+            UserKey::Borrow(b) => unsafe { b.as_ref() }
         }
     }
 }
@@ -191,10 +191,8 @@ impl<'a, Comp: Comparator> Ord for Partition<'a, Comp> {
 
 impl<'a, Comp: Comparator> PartialEq for Partition<'a, Comp> {
     fn eq(&self, other: &Self) -> bool {
-        unsafe {
-            debug_assert_ne!(self as *const Partition<'a, Comp> as *const (),
-                             other as *const Partition<'a, Comp> as *const ());
-        }
+        debug_assert_ne!(self as *const Partition<'a, Comp> as *const (),
+                         other as *const Partition<'a, Comp> as *const ());
         debug_assert_ne!(Comp::compare(&self.lower_bound.read().unwrap(),
                                        &other.lower_bound.read().unwrap()), Ordering::Equal);
         debug_assert_ne!(Comp::compare(&self.upper_bound.read().unwrap(),

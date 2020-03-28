@@ -43,7 +43,7 @@ mod test {
     fn test_encode_decode_32_ret() {
         for _ in 1..1024 {
             let number = thread_rng().gen_range(0, 0x7FFFFFFFu32);
-            let mut buffer = encode_fixed32_ret( number);
+            let buffer = encode_fixed32_ret( number);
             assert_eq!(decode_fixed32(&buffer), number)
         }
     }
