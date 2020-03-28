@@ -61,7 +61,7 @@ pub(crate) struct Partition<'a, Comp: Comparator> {
 
     mem_table: RwLock<MemTable<Comp>>,
     imm_table: Mutex<Option<MemTable<Comp>>>,
-    levels: Vec<Vec<Box<dyn Table<Comp>>>>,
+    levels: Vec<Level<Comp>>,
     cache_manager: &'a TableCacheManager<'a>,
     io_manager: &'a IOManager
 }

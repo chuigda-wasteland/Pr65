@@ -1,6 +1,7 @@
 mod builder;
 pub(crate) mod cache;
 
+mod tablefmt;
 mod sctable;
 mod scsplit;
 

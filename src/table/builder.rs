@@ -1,10 +1,10 @@
-use crate::table::sctable::{ScTableIndex, TABLE_MAGIC};
-use crate::table::sctable::{TABLE_MIN_SIZE, TABLE_INDEX_SIZE};
+use crate::table::tablefmt::{ScTableCatalogItem, TABLE_MAGIC};
+use crate::table::tablefmt::{TABLE_MIN_SIZE, TABLE_INDEX_SIZE};
 use crate::encode::{encode_fixed32_ret, encode_fixed32};
 use crc::crc32;
 
 pub(crate) struct ScTableBuilder {
-    indexes: Vec<ScTableIndex>,
+    indexes: Vec<ScTableCatalogItem>,
     data: Vec<u8>
 }
 
@@ -28,7 +28,7 @@ impl ScTableBuilder {
         let value_size = value.len() as u32;
         self.data.extend_from_slice(value);
 
-        self.indexes.push(ScTableIndex::new(key_off, key_size, value_off, value_size));
+        self.indexes.push(ScTableCatalogItem::new(key_off, key_size, value_off, value_size));
     }
 
     pub(crate) fn build(&self) -> Vec<u8> {
