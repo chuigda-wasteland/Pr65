@@ -8,6 +8,7 @@ use crate::table::Table;
 use crate::table::cache::TableCacheManager;
 use crate::io::IOManager;
 use crate::error::Error;
+use std::ops::DerefMut;
 
 pub(crate) enum UserKey<Comp: Comparator> {
     Owned(Vec<u8>, PhantomData<Comp>),
@@ -67,6 +68,50 @@ pub(crate) struct Partition<'a, Comp: Comparator> {
 }
 
 impl<'a, Comp: Comparator> Partition<'a, Comp> {
+    pub(crate) fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+        debug_assert_ne!(Comp::compare(key, &self.lower_bound.read().unwrap()), Ordering::Less);
+        debug_assert_ne!(Comp::compare(key, &self.upper_bound.read().unwrap()), Ordering::Greater);
+
+        let user_key = UserKey::new_borrow(key);
+
+        if let Some(v) = self.mem_table.read().unwrap().get(&user_key) {
+            return Ok(Self::convert_deletion_mark(v.clone()));
+        }
+
+        if let Some(v) = self.imm_table.lock().unwrap().as_ref().and_then(
+            |imm_table| imm_table.get(&user_key)) {
+            return Ok(Self::convert_deletion_mark(v.clone()));
+        }
+
+        if self.levels.len() >= 1 {
+            if let Some(v) = Self::level0_get(&self.levels[0], key, self.cache_manager, self.io_manager)? {
+                return Ok(Self::convert_deletion_mark(v));
+            }
+        }
+
+        for level in &self.levels[1..] {
+            if let Some(v) = Self::level_get(level, key, self.cache_manager, self.io_manager)? {
+                return Ok(Self::convert_deletion_mark(v));
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub(crate) fn put(&self, key: &[u8], value: &[u8]) -> Result<(), Error> {
+        self.mem_table.write().unwrap().insert(UserKey::new_owned(key.to_vec()), value.to_vec());
+
+        unimplemented!("The merging");
+
+        if Comp::compare(key, &self.lower_bound.read().unwrap()) == Ordering::Less {
+            self.lower_bound.write().unwrap().copy_from_slice(value);
+        } else if Comp::compare(key, &self.upper_bound.read().unwrap()) == Ordering::Greater {
+            self.upper_bound.write().unwrap().copy_from_slice(value);
+        }
+
+        Ok(())
+    }
+
     fn level0_get(level: &Level<Comp>,
                   key: &[u8],
                   cache_manager: &'a TableCacheManager<'a>,
@@ -96,36 +141,6 @@ impl<'a, Comp: Comparator> Partition<'a, Comp> {
         } else {
             Some(slice.to_vec())
         }
-    }
-
-    pub(crate) fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        debug_assert_ne!(Comp::compare(key, &self.lower_bound.read().unwrap()), Ordering::Less);
-        debug_assert_ne!(Comp::compare(key, &self.upper_bound.read().unwrap()), Ordering::Greater);
-
-        let user_key = UserKey::new_borrow(key);
-
-        if let Some(v) = self.mem_table.read().unwrap().get(&user_key) {
-            return Ok(Self::convert_deletion_mark(v.clone()));
-        }
-
-        if let Some(v) = self.imm_table.lock().unwrap().as_ref().and_then(
-            |imm_table| imm_table.get(&user_key)) {
-            return Ok(Self::convert_deletion_mark(v.clone()));
-        }
-
-        if self.levels.len() >= 1 {
-            if let Some(v) = Self::level0_get(&self.levels[0], key, self.cache_manager, self.io_manager)? {
-                return Ok(Self::convert_deletion_mark(v));
-            }
-        }
-
-        for level in &self.levels[1..] {
-            if let Some(v) = Self::level_get(level, key, self.cache_manager, self.io_manager)? {
-                return Ok(Self::convert_deletion_mark(v));
-            }
-        }
-
-        Ok(None)
     }
 }
 

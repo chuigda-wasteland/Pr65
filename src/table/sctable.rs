@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 
-use crate::error::{Error};
+use crate::error::Error;
 use crate::table::Table;
 use crate::table::cache::{TableCacheManager, ScTableCache};
 use crate::Comparator;
