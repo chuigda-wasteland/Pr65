@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::ops::Deref;
 
 use lru::LruCache;
 use crc::crc32;
@@ -12,6 +11,7 @@ use crate::table::tablefmt::{ScTableCatalogItem,
                              TABLE_INDEX_SIZE, TABLE_HEAD_SIZE};
 use crate::error::Error;
 use crate::encode::decode_fixed32;
+use crate::Comparator;
 
 pub(crate) struct ScTableCache<'a> {
     catalog: Vec<ScTableCatalogItem>,
@@ -68,6 +68,23 @@ impl<'a> ScTableCache<'a> {
 
         Ok(Self { catalog: catalog_item, data: data.to_vec(), quota })
     }
+
+    pub(crate) fn get<Comp: Comparator>(&self, key: &[u8]) -> Option<Vec<u8>> {
+        if let Ok(idx) = self.catalog.binary_search_by(
+            |catalog_item| Comp::compare(self.key(catalog_item), key)) {
+            Some(self.value(&self.catalog[idx]).to_vec())
+        } else {
+            None
+        }
+    }
+
+    fn key(&self, catalog_item: &ScTableCatalogItem) -> &[u8] {
+        &self.data[catalog_item.key_off as usize .. (catalog_item.key_off + catalog_item.key_len) as usize]
+    }
+
+    fn value(&self, catalog_item: &ScTableCatalogItem) -> &[u8] {
+        &self.data[catalog_item.value_off as usize .. (catalog_item.value_off + catalog_item.value_len) as usize]
+    }
 }
 
 
@@ -102,7 +119,7 @@ impl<'a> TableCacheManager<'a> {
         }
     }
 
-    pub(crate) fn allocate_quota(&'a self) -> CacheQuota<'a> {
+    pub(crate) fn require_quota(&'a self) -> CacheQuota<'a> {
         while self.current_cache_count.load(Ordering::SeqCst) >= self.cache_count {
         }
         self.current_cache_count.fetch_add(1, Ordering::SeqCst);

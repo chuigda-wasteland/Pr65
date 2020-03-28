@@ -1,6 +1,5 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::fs::File;
-use std::error::Error;
 use std::io::{Read, Write};
 
 use crate::error;

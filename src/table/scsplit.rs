@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use crate::table::sctable::ScTableFile;
 use crate::Comparator;
 use crate::table::Table;

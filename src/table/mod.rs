@@ -14,7 +14,7 @@ use crate::table::cache::TableCacheManager;
 pub(crate) trait Table<Comp: Comparator> {
     fn get<'a>(&self,
                key: &[u8],
-               cache_manager: &'a TableCacheManager,
+               cache_manager: &'a TableCacheManager<'a>,
                io_manager: &'a IOManager) -> Result<Option<Vec<u8>>, error::Error>;
 
     fn cmp_key(&self, key: &[u8]) -> Ordering {

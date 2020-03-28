@@ -1,7 +1,8 @@
+use crc::crc32;
+
 use crate::table::tablefmt::{ScTableCatalogItem, TABLE_MAGIC};
 use crate::table::tablefmt::{TABLE_MIN_SIZE, TABLE_INDEX_SIZE};
 use crate::encode::{encode_fixed32_ret, encode_fixed32};
-use crc::crc32;
 
 pub(crate) struct ScTableBuilder {
     indexes: Vec<ScTableCatalogItem>,

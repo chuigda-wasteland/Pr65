@@ -57,7 +57,6 @@ impl Options {
 }
 
 use partition::Partition;
-use std::sync::Mutex;
 use crate::io::IOManager;
 use crate::table::cache::TableCacheManager;
 
