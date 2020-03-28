@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std_semaphore::Semaphore;
 
 use lru::LruCache;
 use crc::crc32;
@@ -136,23 +137,19 @@ impl<'a> Drop for CacheQuota<'a> {
 
 pub(crate) struct TableCacheManager<'a> {
     lru: Mutex<LruCache<ScTableFile, Arc<ScTableCache<'a>>>>,
-    cache_count: usize,
-    current_cache_count: AtomicUsize
+    sem: Semaphore
 }
 
 impl<'a> TableCacheManager<'a> {
     pub(crate) fn new(cache_count: usize) -> Self {
         TableCacheManager {
             lru: Mutex::new(LruCache::new(cache_count)),
-            cache_count,
-            current_cache_count: AtomicUsize::new(0)
+            sem: Semaphore::new(cache_count as isize)
         }
     }
 
-    pub(crate) fn require_quota(&'a self) -> CacheQuota<'a> {
-        while self.current_cache_count.load(Ordering::SeqCst) >= self.cache_count {
-        }
-        self.current_cache_count.fetch_add(1, Ordering::SeqCst);
+    pub(crate) fn acquire_quota(&'a self) -> CacheQuota<'a> {
+        self.sem.acquire();
         CacheQuota::new(self)
     }
 
@@ -167,6 +164,6 @@ impl<'a> TableCacheManager<'a> {
     }
 
     fn on_cache_released(&self) {
-        self.current_cache_count.fetch_sub(1, Ordering::SeqCst);
+        self.sem.release()
     }
 }

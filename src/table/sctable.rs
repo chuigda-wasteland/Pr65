@@ -43,10 +43,10 @@ impl<Comp: Comparator> Table<Comp> for ScTable<Comp> {
         if let Some(cache) = cache_manager.get_cache(self.table_file) {
             Ok(cache.get::<Comp>(key))
         } else {
-            let cache_quota = cache_manager.require_quota();
+            let cache_quota = cache_manager.acquire_quota();
             let cache =
                 ScTableCache::from_raw(
-                    &io_manager.require_quota()
+                    &io_manager.acquire_quota()
                                     .read_file(self.table_file.file_name())?, cache_quota)?;
             let cache = cache_manager.add_cache(self.table_file, cache);
             Ok(cache.get::<Comp>(key))

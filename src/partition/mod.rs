@@ -2,13 +2,13 @@ use std::collections::BTreeMap;
 use std::sync::{Mutex, RwLock};
 use std::marker::PhantomData;
 use std::cmp::Ordering;
+use std::ops::DerefMut;
 
 use crate::Comparator;
 use crate::table::Table;
 use crate::table::cache::TableCacheManager;
 use crate::io::IOManager;
 use crate::error::Error;
-use std::ops::DerefMut;
 
 pub(crate) enum UserKey<Comp: Comparator> {
     Owned(Vec<u8>, PhantomData<Comp>),

@@ -14,3 +14,5 @@ egconf = "0.1.0"
 crc = "1.8.1"
 rand = "0.7.0"
 lru = "0.4.3"
+# cnm 傻逼 Rust 标准库, 把这么重要的玩意给老子 deprecate 了
+std-semaphore = "0.1.0"
