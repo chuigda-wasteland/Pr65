@@ -32,7 +32,7 @@ pub struct Options {
     pub max_open_files: usize,
     pub table_size: usize,
     pub key_size_max: usize,
-    pub value_size_max: usize
+    pub value_size_max: usize,
 }
 
 impl Options {
@@ -52,7 +52,7 @@ impl Options {
             max_open_files,
             table_size,
             key_size_max,
-            value_size_max
+            value_size_max,
         }
     }
 }
@@ -68,7 +68,7 @@ pub struct ScottDB<'a, Comp: Comparator> {
     seq: AtomicU64,
     partitions: VecDeque<Partition<'a, Comp>>,
     cache_manager: TableCacheManager<'a>,
-    io_manager: IOManager
+    io_manager: IOManager,
 }
 
 impl<'a, Comp: Comparator> ScottDB<'a, Comp> {
@@ -81,7 +81,7 @@ impl<'a, Comp: Comparator> ScottDB<'a, Comp> {
             seq: AtomicU64::new(0),
             partitions: VecDeque::new(),
             cache_manager: TableCacheManager::new(cache_count),
-            io_manager: IOManager::new(max_open_files)
+            io_manager: IOManager::new(max_open_files),
         }
     }
 }

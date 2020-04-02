@@ -11,6 +11,7 @@ use crate::table::tablefmt::{TABLE_MIN_SIZE, TABLE_MAGIC_SIZE, TABLE_MAGIC, TABL
 use crate::encode::{encode_fixed32_ret, decode_fixed32, decode_fixed64, encode_fixed64_ret};
 use crate::error::Error;
 use crate::Comparator;
+use crate::partition::{InternalKey, UserKey};
 
 pub(crate) struct ScTableCatalogItem {
     pub(crate) key_seq: u64,
@@ -105,10 +106,15 @@ impl<'a> ScTableCache<'a> {
         Ok(Self { catalog: catalog_item, data: data.to_vec(), quota })
     }
 
-    pub(crate) fn get<Comp: Comparator>(&self, key: &[u8]) -> Option<Vec<u8>> {
-        /*
+    pub(crate) fn get<Comp: Comparator>(&self, key: &InternalKey<Comp>) -> Option<Vec<u8>> {
         if let Ok(idx) = self.catalog.binary_search_by(
-            |catalog_item| Comp::compare(self.key(catalog_item), key)) {
+            |catalog_item| {
+                let seq = catalog_item.key_seq;
+                let user_key = self.key(catalog_item);
+                let lookup_key = InternalKey::new(seq, UserKey::new_borrow(user_key));
+                // TODO this is buggy.
+                key.cmp(&lookup_key)
+            }) {
             if self.catalog[idx].value_off & TABLE_DELETION_BITMASK != 0 {
                 None
             } else {
@@ -117,10 +123,6 @@ impl<'a> ScTableCache<'a> {
         } else {
             None
         }
-        */
-        // TODO The implementation above is buggy.
-        // TODO Perhaps we need to distinguish between InternalKey and ParsedInternalKey
-        unimplemented!()
     }
 
     fn key(&self, catalog_item: &ScTableCatalogItem) -> &[u8] {

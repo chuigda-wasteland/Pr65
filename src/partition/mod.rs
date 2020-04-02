@@ -1,15 +1,15 @@
 use std::collections::BTreeMap;
-use std::sync::{Mutex, RwLock};
+use std::sync::{Mutex, RwLock, atomic::AtomicU64};
 use std::marker::PhantomData;
 use std::cmp::Ordering;
 use std::ptr::NonNull;
+use std::ops::Deref;
 
-use crate::{Comparator, Options};
+use crate::{Comparator, Options, DefaultComparator};
 use crate::table::{Table, tablefmt::{TABLE_CATALOG_ITEM_SIZE, TABLE_MIN_SIZE}};
 use crate::table::cache::TableCacheManager;
 use crate::io::IOManager;
 use crate::error::Error;
-use std::ops::Deref;
 
 pub(crate) enum UserKey<Comp: Comparator> {
     Owned(Vec<u8>, PhantomData<Comp>),
@@ -17,11 +17,11 @@ pub(crate) enum UserKey<Comp: Comparator> {
 }
 
 impl<Comp: Comparator> UserKey<Comp> {
-    fn new_owned(vec: Vec<u8>) -> Self {
+    pub(crate) fn new_owned(vec: Vec<u8>) -> Self {
         UserKey::Owned(vec, PhantomData)
     }
 
-    fn new_borrow(slice: &[u8]) -> Self {
+    pub(crate) fn new_borrow(slice: &[u8]) -> Self {
         UserKey::Borrow(unsafe { NonNull::new_unchecked(slice as *const [u8] as _) })
     }
 
@@ -53,13 +53,15 @@ impl<Comp: Comparator> PartialEq for UserKey<Comp> {
 
 impl<Comp: Comparator> Eq for UserKey<Comp> {}
 
+type DefaultUserKey = UserKey<DefaultComparator>;
+
 pub(crate) struct InternalKey<Comp: Comparator> {
     seq: u64,
-    user_key: UserKey<Comp>
+    pub(crate) user_key: UserKey<Comp>
 }
 
 impl<Comp: Comparator> InternalKey<Comp> {
-    fn new(seq: u64, user_key: UserKey<Comp>) -> Self {
+    pub(crate) fn new(seq: u64, user_key: UserKey<Comp>) -> Self {
         Self { seq, user_key }
     }
 }
@@ -96,15 +98,20 @@ type Level<Comp> = Vec<Box<dyn Table<Comp>>>;
 pub(crate) struct Partition<'a, Comp: Comparator> {
     concrete: RwLock<PartitionImpl<'a, Comp>>,
 
+    seq: &'a AtomicU64,
     cache_manager: &'a TableCacheManager<'a>,
     io_manager: &'a IOManager,
     options: &'a Options
 }
 
 impl<'a, Comp: Comparator> Partition<'a, Comp> {
-    fn new(options: &'a Options, cache_manager: &'a TableCacheManager<'a>, io_manager: &'a IOManager) -> Self {
+    fn new(options: &'a Options,
+           seq: &'a AtomicU64,
+           cache_manager: &'a TableCacheManager<'a>,
+           io_manager: &'a IOManager) -> Self {
         Self {
             concrete: RwLock::new(PartitionImpl::new(options)),
+            seq,
             cache_manager,
             io_manager,
             options

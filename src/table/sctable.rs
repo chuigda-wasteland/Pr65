@@ -6,6 +6,7 @@ use crate::table::Table;
 use crate::table::cache::{TableCacheManager, ScTableCache};
 use crate::Comparator;
 use crate::io::IOManager;
+use crate::partition::{InternalKey, UserKey};
 
 #[derive(Ord, Eq, PartialOrd, PartialEq, Hash, Copy, Clone)]
 pub(crate) struct ScTableFile {
@@ -20,23 +21,21 @@ impl ScTableFile {
     }
 }
 
-pub(crate) struct ScTable<Comp> {
+pub(crate) struct ScTable<Comp: Comparator> {
     table_file: ScTableFile,
 
-    key_lower_bound: Vec<u8>,
-    key_upper_bound: Vec<u8>,
-
-    phantom: PhantomData<Comp>
+    key_lower_bound: UserKey<Comp>,
+    key_upper_bound: UserKey<Comp>
 }
 
 impl<Comp: Comparator> Table<Comp> for ScTable<Comp> {
     fn get<'a>(&self,
-               key: &[u8],
+               key: &InternalKey<Comp>,
                cache_manager: &'a TableCacheManager<'a>,
                io_manager: &'a IOManager) -> Result<Option<Vec<u8>>, Error> {
-        if Comp::compare(key, self.lower_bound()) == Ordering::Less {
+        if key.user_key.cmp(self.lower_bound()) == Ordering::Less {
             return Ok(None)
-        } else if Comp::compare(key, self.upper_bound()) == Ordering::Greater {
+        } else if key.user_key.cmp(self.upper_bound()) == Ordering::Greater {
             return Ok(None)
         }
 
@@ -53,11 +52,11 @@ impl<Comp: Comparator> Table<Comp> for ScTable<Comp> {
         }
     }
 
-    fn lower_bound(&self) -> &[u8] {
+    fn lower_bound(&self) -> &UserKey<Comp> {
         &self.key_lower_bound
     }
 
-    fn upper_bound(&self) -> &[u8] {
+    fn upper_bound(&self) -> &UserKey<Comp> {
         &self.key_upper_bound
     }
 
