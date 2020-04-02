@@ -99,7 +99,7 @@ pub(crate) struct Partition<'a, Comp: Comparator> {
     concrete: RwLock<PartitionImpl<'a, Comp>>,
 
     seq: &'a AtomicU64,
-    cache_manager: &'a TableCacheManager<'a>,
+    cache_manager: &'a TableCacheManager,
     io_manager: &'a IOManager,
     options: &'a Options
 }
@@ -107,7 +107,7 @@ pub(crate) struct Partition<'a, Comp: Comparator> {
 impl<'a, Comp: Comparator> Partition<'a, Comp> {
     fn new(options: &'a Options,
            seq: &'a AtomicU64,
-           cache_manager: &'a TableCacheManager<'a>,
+           cache_manager: &'a TableCacheManager,
            io_manager: &'a IOManager) -> Self {
         Self {
             concrete: RwLock::new(PartitionImpl::new(options)),

@@ -67,7 +67,7 @@ pub struct ScottDB<'a, Comp: Comparator> {
     options: Options,
     seq: AtomicU64,
     partitions: VecDeque<Partition<'a, Comp>>,
-    cache_manager: TableCacheManager<'a>,
+    cache_manager: TableCacheManager,
     io_manager: IOManager,
 }
 

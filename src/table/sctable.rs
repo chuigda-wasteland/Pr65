@@ -31,7 +31,7 @@ pub(crate) struct ScTable<Comp: Comparator> {
 impl<Comp: Comparator> Table<Comp> for ScTable<Comp> {
     fn get<'a>(&self,
                key: &InternalKey<Comp>,
-               cache_manager: &'a TableCacheManager<'a>,
+               cache_manager: &'a TableCacheManager,
                io_manager: &'a IOManager) -> Result<Option<Vec<u8>>, Error> {
         if key.user_key.cmp(self.lower_bound()) == Ordering::Less {
             return Ok(None)

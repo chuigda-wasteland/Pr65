@@ -14,7 +14,7 @@ use crate::partition::{InternalKey, UserKey};
 pub(crate) trait Table<Comp: Comparator> {
     fn get<'a>(&self,
                key: &InternalKey<Comp>,
-               cache_manager: &'a TableCacheManager<'a>,
+               cache_manager: &'a TableCacheManager,
                io_manager: &'a IOManager) -> Result<Option<Vec<u8>>, error::Error>;
 
     fn cmp_key(&self, key: &UserKey<Comp>) -> Ordering {

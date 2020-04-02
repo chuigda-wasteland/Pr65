@@ -12,6 +12,9 @@ use crate::encode::{encode_fixed32_ret, decode_fixed32, decode_fixed64, encode_f
 use crate::error::Error;
 use crate::Comparator;
 use crate::partition::{InternalKey, UserKey};
+use std::rc::Rc;
+use std::ptr::NonNull;
+use crate::table::Table;
 
 pub(crate) struct ScTableCatalogItem {
     pub(crate) key_seq: u64,
@@ -46,15 +49,14 @@ impl ScTableCatalogItem {
     }
 }
 
-
-pub(crate) struct ScTableCache<'a> {
+pub(crate) struct ScTableCache {
     catalog: Vec<ScTableCatalogItem>,
     data: Vec<u8>,
-    quota: CacheQuota<'a>
+    quota: CacheQuota
 }
 
-impl<'a> ScTableCache<'a> {
-    pub(crate) fn from_raw(raw: &[u8], quota: CacheQuota<'a>) -> Result<ScTableCache<'a>, Error> {
+impl ScTableCache {
+    pub(crate) fn from_raw(raw: &[u8], quota: CacheQuota) -> Result<ScTableCache, Error> {
         if raw.len() < TABLE_MIN_SIZE {
             return Err(Error::sc_table_corrupt("too small to be a table file".into()))
         } else if raw.len() > TABLE_MAX_SIZE {
@@ -96,8 +98,8 @@ impl<'a> ScTableCache<'a> {
             let index =
                 ScTableCatalogItem::deserialize(&kv_catalog[base..base + TABLE_CATALOG_ITEM_SIZE]);
             if index.value_off & TABLE_DELETION_BITMASK != 0 {
-            } else if (index.key_off + index.key_len) as usize >= data.len()
-                || (index.value_off + index.value_len) as usize >= data.len() {
+            } else if (index.key_off + index.key_len) as usize > data.len()
+                      || (index.value_off + index.value_len) as usize > data.len() {
                 return Err(Error::sc_table_corrupt("incorrect key/value catalog data".into()))
             }
             catalog_item.push(index)
@@ -125,6 +127,16 @@ impl<'a> ScTableCache<'a> {
         }
     }
 
+    pub(crate) fn catalog_size(&self) -> usize {
+        self.catalog.len()
+    }
+
+    pub(crate) fn nth_item(&self, n: usize) -> (u64, &[u8], &[u8]) {
+        assert!(n < self.catalog_size());
+        let catalog_item = &self.catalog[n];
+        (catalog_item.key_seq, self.key(catalog_item), self.value(catalog_item))
+    }
+
     fn key(&self, catalog_item: &ScTableCatalogItem) -> &[u8] {
         &self.data[catalog_item.key_off as usize .. (catalog_item.key_off + catalog_item.key_len) as usize]
     }
@@ -134,29 +146,28 @@ impl<'a> ScTableCache<'a> {
     }
 }
 
-
-pub(crate) struct CacheQuota<'a> {
-    cache_manager: &'a TableCacheManager<'a>
+pub(crate) struct CacheQuota {
+    cache_manager: NonNull<TableCacheManager>
 }
 
-impl<'a> CacheQuota<'a> {
-    fn new(cache_manager: &'a TableCacheManager<'a>) -> Self {
-        Self { cache_manager }
+impl CacheQuota {
+    fn new(cache_manager: &TableCacheManager) -> Self {
+        Self { cache_manager: unsafe { NonNull::new_unchecked(cache_manager as *const TableCacheManager as _) } }
     }
 }
 
-impl<'a> Drop for CacheQuota<'a> {
+impl Drop for CacheQuota {
     fn drop(&mut self) {
-        self.cache_manager.on_cache_released()
+        unsafe { self.cache_manager.as_ref().on_cache_released() }
     }
 }
 
-pub(crate) struct TableCacheManager<'a> {
-    lru: Mutex<LruCache<ScTableFile, Arc<ScTableCache<'a>>>>,
+pub(crate) struct TableCacheManager {
+    lru: Mutex<LruCache<ScTableFile, Arc<ScTableCache>>>,
     sem: Semaphore
 }
 
-impl<'a> TableCacheManager<'a> {
+impl TableCacheManager {
     pub(crate) fn new(cache_count: usize) -> Self {
         TableCacheManager {
             lru: Mutex::new(LruCache::new(cache_count)),
@@ -164,18 +175,18 @@ impl<'a> TableCacheManager<'a> {
         }
     }
 
-    pub(crate) fn acquire_quota(&'a self) -> CacheQuota<'a> {
+    pub(crate) fn acquire_quota(&self) -> CacheQuota {
         self.sem.acquire();
         CacheQuota::new(self)
     }
 
-    pub(crate) fn add_cache(&'a self, table_file: ScTableFile, table_cache: ScTableCache<'a>) -> Arc<ScTableCache<'a>> {
+    pub(crate) fn add_cache(&self, table_file: ScTableFile, table_cache: ScTableCache) -> Arc<ScTableCache> {
         let ret = Arc::new(table_cache);
         self.lru.lock().unwrap().put(table_file, ret.clone());
         ret
     }
 
-    pub(crate) fn get_cache(&'a self, table_file: ScTableFile) -> Option<Arc<ScTableCache<'a>>> {
+    pub(crate) fn get_cache(&self, table_file: ScTableFile) -> Option<Arc<ScTableCache>> {
         self.lru.lock().unwrap().get(&table_file).and_then(|arc| Some(arc.clone()))
     }
 

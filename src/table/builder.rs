@@ -43,7 +43,8 @@ impl ScTableBuilder {
         for index in self.indexes.iter() {
             index.serialize(&mut ret)
         }
-        let index_checksum = crc32::checksum_ieee(&ret[16..(self.indexes.len() + 1) * 16]);
+        ret.extend_from_slice(&self.data);
+        let index_checksum = crc32::checksum_ieee(&ret[16..16 + self.indexes.len() * TABLE_CATALOG_ITEM_SIZE]);
         encode_fixed32(&mut ret[8..12], index_checksum);
         ret.extend_from_slice(TABLE_MAGIC);
         ret
@@ -51,5 +52,42 @@ impl ScTableBuilder {
 
     pub(crate) fn size(&self) -> usize {
         TABLE_MIN_SIZE + self.indexes.len() * TABLE_CATALOG_ITEM_SIZE + self.data.len()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::table::builder::ScTableBuilder;
+    use crate::table::cache::{ScTableCache, TableCacheManager};
+
+    #[test]
+    fn test_builder_1() {
+        let data = [
+            (0x40490fd0fffffffeu64, "正当梨花开遍了天涯".as_bytes(), "Расцветали яблони и груши".as_bytes()),
+            (0x40490fd0fffffffeu64, "河上飘着柔软的轻纱".as_bytes(), "Поплыли туманы над рекой".as_bytes()),
+            (0x40490fd0fffffffeu64, "喀秋莎站在那俊俏的岸上".as_bytes(), "Выходила на берег Катюша".as_bytes()),
+            (0x40490fd0fffffffeu64, "歌声好像明媚的春光".as_bytes(), "На высокий берег, на крутой".as_bytes()),
+            (0x40490fd0fffffffeu64, "间奏".as_bytes(), "".as_bytes()),
+            (0x40490fd0ffffffffu64, "喀秋莎站在那俊俏的岸上".as_bytes(), "Выходила на берег Катюша".as_bytes()),
+            (0x40490fd0ffffffffu64, "歌声好像明媚的春光".as_bytes(), "На высокий берег, на крутой".as_bytes()),
+            (0x40490fd0fffffffeu64, "尾声".as_bytes(), "".as_bytes()),
+        ];
+
+        let mut builder = ScTableBuilder::new();
+        for &(seq, key, value) in data.iter() {
+            builder.add_kv(seq, key, value);
+        }
+        let buffer = builder.build();
+
+        let cache_manager = TableCacheManager::new(1);
+        let quota = cache_manager.acquire_quota();
+        let table = ScTableCache::from_raw(&buffer, quota).unwrap();
+        assert_eq!(table.catalog_size(), data.len());
+        for (i, &(seq, key, value)) in data.iter().enumerate() {
+            let (seq1, key1, value1) = table.nth_item(i);
+            assert_eq!(seq1, seq);
+            assert_eq!(key1, key);
+            assert_eq!(value1, value);
+        }
     }
 }
