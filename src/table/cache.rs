@@ -6,13 +6,14 @@ use crc::crc32;
 
 use crate::table::sctable::ScTableFile;
 
-use crate::table::tablefmt::{TABLE_MIN_SIZE, TABLE_MAGIC_SIZE, TABLE_MAGIC,
-                             TABLE_CATALOG_ITEM_SIZE, TABLE_HEAD_SIZE};
-use crate::encode::{encode_fixed32_ret, decode_fixed32};
+use crate::table::tablefmt::{TABLE_MIN_SIZE, TABLE_MAGIC_SIZE, TABLE_MAGIC, TABLE_CATALOG_ITEM_SIZE,
+                             TABLE_HEAD_SIZE, TABLE_MAX_SIZE, TABLE_DELETION_BITMASK};
+use crate::encode::{encode_fixed32_ret, decode_fixed32, decode_fixed64, encode_fixed64_ret};
 use crate::error::Error;
 use crate::Comparator;
 
 pub(crate) struct ScTableCatalogItem {
+    pub(crate) key_seq: u64,
     pub(crate) key_off: u32,
     pub(crate) key_len: u32,
     pub(crate) value_off: u32,
@@ -20,11 +21,12 @@ pub(crate) struct ScTableCatalogItem {
 }
 
 impl ScTableCatalogItem {
-    pub(crate) fn new(key_off: u32, key_len: u32, value_off: u32, value_len: u32) -> Self {
-        Self { key_off, key_len, value_off, value_len }
+    pub(crate) fn new(key_seq: u64, key_off: u32, key_len: u32, value_off: u32, value_len: u32) -> Self {
+        Self { key_seq, key_off, key_len, value_off, value_len }
     }
 
     pub(crate) fn serialize(&self, dest: &mut Vec<u8>) {
+        dest.extend_from_slice(&encode_fixed64_ret(self.key_seq));
         dest.extend_from_slice(&encode_fixed32_ret(self.key_off));
         dest.extend_from_slice(&encode_fixed32_ret(self.key_len));
         dest.extend_from_slice(&encode_fixed32_ret(self.value_off));
@@ -34,10 +36,11 @@ impl ScTableCatalogItem {
     pub(crate) fn deserialize(from: &[u8]) -> Self {
         debug_assert_eq!(from.len(), TABLE_CATALOG_ITEM_SIZE);
         Self {
-            key_off: decode_fixed32(&from[0..4]),
-            key_len: decode_fixed32(&from[4..8]),
-            value_off: decode_fixed32(&from[8..12]),
-            value_len: decode_fixed32(&from[12..16]),
+            key_seq: decode_fixed64(&from[0..8]),
+            key_off: decode_fixed32(&from[8..12]),
+            key_len: decode_fixed32(&from[12..16]),
+            value_off: decode_fixed32(&from[16..20]),
+            value_len: decode_fixed32(&from[20..24]),
         }
     }
 }
@@ -53,6 +56,8 @@ impl<'a> ScTableCache<'a> {
     pub(crate) fn from_raw(raw: &[u8], quota: CacheQuota<'a>) -> Result<ScTableCache<'a>, Error> {
         if raw.len() < TABLE_MIN_SIZE {
             return Err(Error::sc_table_corrupt("too small to be a table file".into()))
+        } else if raw.len() > TABLE_MAX_SIZE {
+            return Err(Error::sc_table_corrupt("too large to be a table file".into()))
         }
 
         if &raw[raw.len()-TABLE_MAGIC_SIZE .. raw.len()] != TABLE_MAGIC {
@@ -89,7 +94,8 @@ impl<'a> ScTableCache<'a> {
             let base = i * TABLE_CATALOG_ITEM_SIZE;
             let index =
                 ScTableCatalogItem::deserialize(&kv_catalog[base..base + TABLE_CATALOG_ITEM_SIZE]);
-            if (index.key_off + index.key_len) as usize >= data.len()
+            if index.value_off & TABLE_DELETION_BITMASK != 0 {
+            } else if (index.key_off + index.key_len) as usize >= data.len()
                 || (index.value_off + index.value_len) as usize >= data.len() {
                 return Err(Error::sc_table_corrupt("incorrect key/value catalog data".into()))
             }
@@ -100,12 +106,21 @@ impl<'a> ScTableCache<'a> {
     }
 
     pub(crate) fn get<Comp: Comparator>(&self, key: &[u8]) -> Option<Vec<u8>> {
+        /*
         if let Ok(idx) = self.catalog.binary_search_by(
             |catalog_item| Comp::compare(self.key(catalog_item), key)) {
-            Some(self.value(&self.catalog[idx]).to_vec())
+            if self.catalog[idx].value_off & TABLE_DELETION_BITMASK != 0 {
+                None
+            } else {
+                Some(self.value(&self.catalog[idx]).to_vec())
+            }
         } else {
             None
         }
+        */
+        // TODO The implementation above is buggy.
+        // TODO Perhaps we need to distinguish between InternalKey and ParsedInternalKey
+        unimplemented!()
     }
 
     fn key(&self, catalog_item: &ScTableCatalogItem) -> &[u8] {

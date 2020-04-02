@@ -53,149 +53,75 @@ impl<Comp: Comparator> PartialEq for UserKey<Comp> {
 
 impl<Comp: Comparator> Eq for UserKey<Comp> {}
 
-type MemTable<Comp> = BTreeMap<UserKey<Comp>, Vec<u8>>;
+pub(crate) struct InternalKey<Comp: Comparator> {
+    seq: u64,
+    user_key: UserKey<Comp>
+}
+
+impl<Comp: Comparator> InternalKey<Comp> {
+    fn new(seq: u64, user_key: UserKey<Comp>) -> Self {
+        Self { seq, user_key }
+    }
+}
+
+impl<Comp: Comparator> Ord for InternalKey<Comp> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let ord =  self.seq.cmp(&other.seq);
+        if ord == Ordering::Equal {
+            self.user_key.cmp(&other.user_key)
+        } else {
+            ord
+        }
+    }
+}
+
+impl<Comp: Comparator> PartialOrd for InternalKey<Comp> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<Comp: Comparator> PartialEq for InternalKey<Comp> {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl<Comp: Comparator> Eq for InternalKey<Comp> {}
+
+type MemTable<Comp> = BTreeMap<InternalKey<Comp>, Vec<u8>>;
 
 type Level<Comp> = Vec<Box<dyn Table<Comp>>>;
 
 pub(crate) struct Partition<'a, Comp: Comparator> {
-    lower_bound: RwLock<Vec<u8>>,
-    upper_bound: RwLock<Vec<u8>>,
+    concrete: RwLock<PartitionImpl<'a, Comp>>,
 
-    mem_table: RwLock<MemTable<Comp>>,
-    mem_table_data_size: RwLock<usize>,
-
-    imm_table: Mutex<Option<MemTable<Comp>>>,
-    levels: Vec<Level<Comp>>,
     cache_manager: &'a TableCacheManager<'a>,
     io_manager: &'a IOManager,
-    options: NonNull<Options>
+    options: &'a Options
 }
 
 impl<'a, Comp: Comparator> Partition<'a, Comp> {
-    pub(crate) fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        debug_assert_ne!(Comp::compare(key, &self.lower_bound.read().unwrap()), Ordering::Less);
-        debug_assert_ne!(Comp::compare(key, &self.upper_bound.read().unwrap()), Ordering::Greater);
-
-        let user_key = UserKey::new_borrow(key);
-
-        if let Some(v) = self.mem_table.read().unwrap().get(&user_key) {
-            return Ok(Self::convert_deletion_mark(v.clone()));
-        }
-
-        if let Some(v) = self.imm_table.lock().unwrap().as_ref().and_then(
-            |imm_table| imm_table.get(&user_key)) {
-            return Ok(Self::convert_deletion_mark(v.clone()));
-        }
-
-        if self.levels.len() >= 1 {
-            if let Some(v) = Self::level0_get(&self.levels[0], key, self.cache_manager, self.io_manager)? {
-                return Ok(Self::convert_deletion_mark(v));
-            }
-        }
-
-        for level in &self.levels[1..] {
-            if let Some(v) = Self::level_get(level, key, self.cache_manager, self.io_manager)? {
-                return Ok(Self::convert_deletion_mark(v));
-            }
-        }
-
-        Ok(None)
-    }
-
-    pub(crate) fn put(&self, key: &[u8], value: &[u8]) -> Result<(), Error> {
-        self.mem_table.write().unwrap().insert(UserKey::new_owned(key.to_vec()), value.to_vec());
-        *self.mem_table_data_size .write().unwrap() += key.len() + value.len();
-
-        if self.estimate_memtable_size() >= self.options().table_size {
-            unimplemented!("dumping and merging")
-        }
-
-        if Comp::compare(key, &self.lower_bound.read().unwrap()) == Ordering::Less {
-            self.lower_bound.write().unwrap().copy_from_slice(value);
-        } else if Comp::compare(key, &self.upper_bound.read().unwrap()) == Ordering::Greater {
-            self.upper_bound.write().unwrap().copy_from_slice(value);
-        }
-
-        Ok(())
-    }
-
-    pub(crate) fn options(&self) -> &Options {
-        unsafe { self.options.as_ref() }
-    }
-
-    fn level0_get(level: &Level<Comp>,
-                  key: &[u8],
-                  cache_manager: &'a TableCacheManager<'a>,
-                  io_manager: &'a IOManager) -> Result<Option<Vec<u8>>, Error> {
-        for table in level.iter() {
-            if let Some(v) = table.get(key, cache_manager, io_manager)? {
-                return Ok(Some(v))
-            }
-        }
-        Ok(None)
-    }
-
-    fn level_get(level: &Level<Comp>,
-                 key: &[u8],
-                 cache_manager: &'a TableCacheManager<'a>,
-                 io_manager: &'a IOManager) -> Result<Option<Vec<u8>>, Error> {
-        if let Ok(idx) = level.binary_search_by(|table| table.cmp_key(key)) {
-            Ok(level[idx].get(key, cache_manager, io_manager)?)
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn convert_deletion_mark(slice: Vec<u8>) -> Option<Vec<u8>> {
-        if slice.len() == 0 {
-            None
-        } else {
-            Some(slice.to_vec())
-        }
-    }
-
-    fn estimate_memtable_size(&self) -> usize {
-        self.mem_table_data_size.read().unwrap().deref()
-        + self.mem_table.read().unwrap().len() * TABLE_CATALOG_ITEM_SIZE
-        + TABLE_MIN_SIZE
-    }
-}
-
-impl<'a, Comp: Comparator> Partition<'a, Comp> {
-    pub(crate) fn new(lower_bound: Vec<u8>,
-                      upper_bound: Vec<u8>,
-                      mem_table: MemTable<Comp>,
-                      imm_table: MemTable<Comp>,
-                      levels: Vec<Vec<Box<dyn Table<Comp>>>>,
-                      cache_manager: &'a TableCacheManager<'a>,
-                      io_manager: &'a IOManager,
-                      options: &Options) -> Self {
+    fn new(options: &'a Options, cache_manager: &'a TableCacheManager<'a>, io_manager: &'a IOManager) -> Self {
         Self {
-            lower_bound: RwLock::new(lower_bound),
-            upper_bound: RwLock::new(upper_bound),
-            mem_table: RwLock::new(mem_table),
-            mem_table_data_size: RwLock::new(0),
-            imm_table: Mutex::new(Some(imm_table)),
-            levels,
+            concrete: RwLock::new(PartitionImpl::new(options)),
             cache_manager,
             io_manager,
-            options: unsafe { NonNull::new_unchecked(options as *const Options as _) }
+            options
         }
-    }
-
-    pub(crate) fn explode(self) -> (Partition<'a, Comp>, Partition<'a, Comp>) {
-        debug_assert!(self.imm_table.lock().unwrap().is_none());
-        unimplemented!()
     }
 }
 
 impl<'a, Comp: Comparator> PartialOrd for Partition<'a, Comp> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if Comp::compare(&self.upper_bound.read().unwrap(),
-                         &other.lower_bound.read().unwrap()) == Ordering::Less {
+        let g1 = self.concrete.read().unwrap();
+        let g2 = other.concrete.read().unwrap();
+        let (self_lower, self_upper) = g1.bounds();
+        let (other_lower, other_upper) = g2.bounds();
+
+        if Comp::compare(self_upper, other_lower) == Ordering::Less {
             return Some(Ordering::Less)
-        } else if Comp::compare(&other.upper_bound.read().unwrap(),
-                                &self.lower_bound.read().unwrap()) == Ordering::Less {
+        } else if Comp::compare(self_lower, other_upper) == Ordering::Greater {
             return Some(Ordering::Greater)
         } else {
             None
@@ -211,14 +137,58 @@ impl<'a, Comp: Comparator> Ord for Partition<'a, Comp> {
 
 impl<'a, Comp: Comparator> PartialEq for Partition<'a, Comp> {
     fn eq(&self, other: &Self) -> bool {
-        debug_assert_ne!(self as *const Partition<'a, Comp> as *const (),
-                         other as *const Partition<'a, Comp> as *const ());
-        debug_assert_ne!(Comp::compare(&self.lower_bound.read().unwrap(),
-                                       &other.lower_bound.read().unwrap()), Ordering::Equal);
-        debug_assert_ne!(Comp::compare(&self.upper_bound.read().unwrap(),
-                                       &other.upper_bound.read().unwrap()), Ordering::Equal);
+        debug_assert!(Self::debug_sanity_check(self, other));
         false
     }
 }
 
+impl<'a, Comp: Comparator> Partition<'a, Comp> {
+    fn debug_sanity_check(&self, other: &Self) -> bool {
+        if self as *const Self == other as *const Self {
+            return false;
+        }
+
+        let g1 = self.concrete.read().unwrap();
+        let g2 = other.concrete.read().unwrap();
+        let (self_lower, self_upper) = g1.bounds();
+        let (other_lower, other_upper) = g2.bounds();
+        if self_lower == other_lower || self_upper == other_upper {
+            return false;
+        }
+
+        true
+    }
+}
+
 impl<'a, Comp: Comparator> Eq for Partition<'a, Comp> {}
+
+pub(crate) struct PartitionImpl<'a, Comp: Comparator> {
+    mem_table: MemTable<Comp>,
+    mem_table_data_size: usize,
+
+    imm_table: Option<MemTable<Comp>>,
+    levels: Vec<Level<Comp>>,
+
+    lower_bound: Vec<u8>,
+    upper_bound: Vec<u8>,
+
+    options: &'a Options
+}
+
+impl<'a, Comp: Comparator> PartitionImpl<'a, Comp> {
+    fn new(options: &'a Options) -> Self {
+        Self {
+            mem_table: MemTable::new(),
+            mem_table_data_size: 0,
+            imm_table: None,
+            levels: Vec::new(),
+            lower_bound: Vec::new(),
+            upper_bound: Vec::new(),
+            options
+        }
+    }
+
+    fn bounds(&self) -> (&[u8], &[u8]) {
+        (&self.lower_bound, &self.upper_bound)
+    }
+}

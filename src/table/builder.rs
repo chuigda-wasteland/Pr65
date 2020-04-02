@@ -20,7 +20,7 @@ impl ScTableBuilder {
         Self { indexes: Vec::new(), data: Vec::new() }
     }
 
-    pub(crate) fn add_kv(&mut self, key: &[u8], value: &[u8]) {
+    pub(crate) fn add_kv(&mut self, key_seq: u64, key: &[u8], value: &[u8]) {
         let key_off = self.data.len() as u32;
         let key_size = key.len() as u32;
         self.data.extend_from_slice(key);
@@ -29,7 +29,7 @@ impl ScTableBuilder {
         let value_size = value.len() as u32;
         self.data.extend_from_slice(value);
 
-        self.indexes.push(ScTableCatalogItem::new(key_off, key_size, value_off, value_size));
+        self.indexes.push(ScTableCatalogItem::new(key_seq, key_off, key_size, value_off, value_size));
     }
 
     pub(crate) fn build(&self) -> Vec<u8> {

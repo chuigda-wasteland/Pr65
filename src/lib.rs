@@ -4,6 +4,7 @@
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::collections::VecDeque;
+use std::sync::atomic::AtomicU64;
 
 mod encode;
 mod error;
@@ -36,13 +37,13 @@ pub struct Options {
 
 impl Options {
     pub fn new(db_name: impl ToString,
-           cache_count: usize,
-           level0_size: usize,
-           size_factor: usize,
-           max_open_files: usize,
-           table_size: usize,
-           key_size_max: usize,
-           value_size_max: usize) -> Self {
+               cache_count: usize,
+               level0_size: usize,
+               size_factor: usize,
+               max_open_files: usize,
+               table_size: usize,
+               key_size_max: usize,
+               value_size_max: usize) -> Self {
         Self {
             db_name: db_name.to_string(),
             cache_count,
@@ -64,6 +65,7 @@ pub struct ScottDB<'a, Comp: Comparator> {
     phantom: PhantomData<Comp>,
 
     options: Options,
+    seq: AtomicU64,
     partitions: VecDeque<Partition<'a, Comp>>,
     cache_manager: TableCacheManager<'a>,
     io_manager: IOManager
@@ -76,6 +78,7 @@ impl<'a, Comp: Comparator> ScottDB<'a, Comp> {
         Self {
             phantom: PhantomData,
             options,
+            seq: AtomicU64::new(0),
             partitions: VecDeque::new(),
             cache_manager: TableCacheManager::new(cache_count),
             io_manager: IOManager::new(max_open_files)
