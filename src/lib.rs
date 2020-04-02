@@ -12,6 +12,8 @@ mod table;
 mod partition;
 mod io;
 
+pub use table::tablefmt;
+
 pub trait Comparator {
     fn compare(lhs: &[u8], rhs: &[u8]) -> Ordering;
 }

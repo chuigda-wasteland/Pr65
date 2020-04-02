@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::ptr::NonNull;
 use std_semaphore::Semaphore;
 
 use lru::LruCache;
@@ -12,8 +13,6 @@ use crate::encode::{encode_fixed32_ret, decode_fixed32, decode_fixed64, encode_f
 use crate::error::Error;
 use crate::Comparator;
 use crate::partition::{InternalKey, UserKey};
-use std::rc::Rc;
-use std::ptr::NonNull;
 use crate::table::Table;
 
 pub(crate) struct ScTableCatalogItem {
