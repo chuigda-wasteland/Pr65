@@ -166,6 +166,8 @@ pub(crate) struct TableCacheManager {
     sem: Semaphore
 }
 
+/// Warning: make sure all `CacheQuota`s are dropped before the `TableCacheManager` drops.
+/// Maybe we should mark the TableCacheManager to be `unsafe`.
 impl TableCacheManager {
     pub(crate) fn new(cache_count: usize) -> Self {
         TableCacheManager {
