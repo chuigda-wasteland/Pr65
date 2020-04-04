@@ -10,6 +10,7 @@ use crate::table::{Table, tablefmt::{TABLE_CATALOG_ITEM_SIZE, TABLE_MIN_SIZE}};
 use crate::table::cache::TableCacheManager;
 use crate::io::IOManager;
 use crate::error::Error;
+use std_semaphore::Semaphore;
 
 pub(crate) enum UserKey<Comp: Comparator> {
     Owned(Vec<u8>, PhantomData<Comp>),
@@ -199,8 +200,7 @@ pub(crate) struct PartitionImpl<'a, Comp: Comparator> {
     lower_bound: Option<UserKey<Comp>>,
     upper_bound: Option<UserKey<Comp>>,
 
-    cond_var: Condvar,
-    mutex: Mutex<()>,
+    sem: Semaphore,
 
     options: &'a Options
 }
@@ -214,8 +214,7 @@ impl<'a, Comp: Comparator> PartitionImpl<'a, Comp> {
             levels: Vec::new(),
             lower_bound: None,
             upper_bound: None,
-            cond_var: Condvar::new(),
-            mutex: Mutex::new(()),
+            sem: Semaphore,
             options
         }
     }
@@ -237,6 +236,9 @@ impl<'a, Comp: Comparator> PartitionImpl<'a, Comp> {
 
         let kv_size = key.user_key.key().len() + value.len() + TABLE_CATALOG_ITEM_SIZE;
         if self.memtable_size() + kv_size > self.options.table_size {
+            let guard = self.sem.access();
+            assert!(self.imm_table.is_none());
+
             // TODO MakeRoomForWrite
             // TODO schedule the compaction, requires a `BackgroundTaskManager`.
         }
