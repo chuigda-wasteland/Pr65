@@ -260,7 +260,30 @@ impl<'a, Comp: 'static + Comparator> ArcPartition<'a, Comp> {
             let _ = data.imm_table.take();
         }
         partition.condvar.notify_one();
-        // TODO check if it is required to schedule another compaction from level 1 to level 2
+        self.schedule_compaction(0);
+    }
+
+    fn schedule_compaction(&self, input_level: usize) {
+        let output_level = input_level + 1;
+        let partition = &self.0;
+        {
+            let data = partition.data.lock().unwrap();
+            if data.background_error().is_err() {
+                return;
+            }
+            if data.levels[input_level].table_count() <= partition.options.level_size(input_level) {
+                return;
+            }
+            // TODO
+            // 1. pick files to be compacted in input_level
+            // 2. find overlapping files in output_level
+            // 3. temporary unlock
+            // 4. perform compaction
+            // 5. re-lock
+            // 6. update metadata
+            // 7. schedule another compaction
+            unimplemented!()
+        }
     }
 }
 

@@ -19,6 +19,10 @@ impl<Comp: 'static + Comparator> Level<Comp> {
         self.tables.push(Box::new(table_file));
     }
 
+    pub(crate) fn table_count(&self) -> usize {
+        self.tables.len()
+    }
+
     pub(crate) fn level_next_file_id(&mut self) -> u64 {
         let ret = self.file_id;
         self.file_id += 1;

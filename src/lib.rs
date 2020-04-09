@@ -58,6 +58,10 @@ impl Options {
             value_size_max,
         }
     }
+
+    fn level_size(&self, level: usize) -> usize {
+        self.level0_size * size_factor.pow(level)
+    }
 }
 
 use partition::Partition;
