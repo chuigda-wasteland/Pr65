@@ -1,16 +1,16 @@
 use std::collections::BTreeMap;
-use std::sync::{Mutex, RwLock, atomic::AtomicU64, Condvar};
+use std::sync::{Mutex, RwLock, atomic::AtomicU64, Condvar, Arc};
 use std::marker::PhantomData;
 use std::cmp::Ordering;
 use std::ptr::NonNull;
 use std::ops::Deref;
+use std_semaphore::Semaphore;
 
 use crate::{Comparator, Options, DefaultComparator};
 use crate::table::{Table, tablefmt::{TABLE_CATALOG_ITEM_SIZE, TABLE_MIN_SIZE}};
 use crate::table::cache::TableCacheManager;
 use crate::io::IOManager;
 use crate::error::Error;
-use std_semaphore::Semaphore;
 
 pub(crate) enum UserKey<Comp: Comparator> {
     Owned(Vec<u8>, PhantomData<Comp>),
@@ -35,7 +35,7 @@ impl<Comp: Comparator> UserKey<Comp> {
         UserKey::Borrow(unsafe { NonNull::new_unchecked(slice as *const [u8] as _) })
     }
 
-    fn key(&self) -> &[u8]{
+    fn key(&self) -> &[u8] {
         match self {
             UserKey::Owned(k, _) => k.as_slice(),
             UserKey::Borrow(b) => unsafe { b.as_ref() }
@@ -114,7 +114,8 @@ type MemTable<Comp> = BTreeMap<InternalKey<Comp>, Vec<u8>>;
 type Level<Comp> = Vec<Box<dyn Table<Comp>>>;
 
 pub(crate) struct Partition<'a, Comp: Comparator> {
-    concrete: RwLock<PartitionImpl<'a, Comp>>,
+    data: Mutex<PartitionData<'a, Comp>>,
+    condvar: Condvar,
 
     seq: &'a AtomicU64,
     cache_manager: &'a TableCacheManager,
@@ -128,7 +129,8 @@ impl<'a, Comp: Comparator> Partition<'a, Comp> {
            cache_manager: &'a TableCacheManager,
            io_manager: &'a IOManager) -> Self {
         Self {
-            concrete: RwLock::new(PartitionImpl::new(options)),
+            data: Mutex::new(PartitionData::new(options)),
+            condvar: Condvar::new(),
             seq,
             cache_manager,
             io_manager,
@@ -139,8 +141,8 @@ impl<'a, Comp: Comparator> Partition<'a, Comp> {
 
 impl<'a, Comp: Comparator> PartialOrd for Partition<'a, Comp> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let g1 = self.concrete.read().unwrap();
-        let g2 = other.concrete.read().unwrap();
+        let g1 = self.data.lock().unwrap();
+        let g2 = other.data.lock().unwrap();
         let (self_lower, self_upper) = g1.bounds();
         let (other_lower, other_upper) = g2.bounds();
 
@@ -173,8 +175,8 @@ impl<'a, Comp: Comparator> Partition<'a, Comp> {
             return false;
         }
 
-        let g1 = self.concrete.read().unwrap();
-        let g2 = other.concrete.read().unwrap();
+        let g1 = self.data.lock().unwrap();
+        let g2 = other.data.lock().unwrap();
         let (self_lower, self_upper) = g1.bounds();
         let (other_lower, other_upper) = g2.bounds();
         if self_lower.is_some() && self_upper.is_some()
@@ -190,7 +192,39 @@ impl<'a, Comp: Comparator> Partition<'a, Comp> {
 
 impl<'a, Comp: Comparator> Eq for Partition<'a, Comp> {}
 
-pub(crate) struct PartitionImpl<'a, Comp: Comparator> {
+fn kv_pair_size<Comp>(key: &InternalKey<Comp>, value: &[u8]) -> usize
+    where Comp: Comparator {
+    key.user_key.key().len() + value.len() + TABLE_CATALOG_ITEM_SIZE
+}
+
+#[derive(Clone, Ord, PartialOrd, Eq, PartialEq)]
+struct ArcPartition<'a, Comp: Comparator>(Arc<Partition<'a, Comp>>);
+
+impl<'a, Comp: Comparator> ArcPartition<'a, Comp> {
+    fn write(&self, key: InternalKey<Comp>, value: Vec<u8>) -> Result<(), Error> {
+        let p = &self.0;
+        let mut data = p.data.lock().unwrap();
+        loop {
+            if data.memtable_size() + kv_pair_size(&key, &value) <= p.options.table_size {
+                break;
+            } else if data.has_imm() {
+                data = p.condvar.wait(data).unwrap();
+            } else {
+                data.convert_mem_to_imm();
+                // TODO run self.do_compaction() at background
+                break;
+            }
+        }
+        data.memtable_put(key, value);
+        Ok(())
+    }
+
+    fn do_compaction(&self) {
+        unimplemented!()
+    }
+}
+
+pub(crate) struct PartitionData<'a, Comp: Comparator> {
     mem_table: MemTable<Comp>,
     mem_table_data_size: usize,
 
@@ -200,12 +234,10 @@ pub(crate) struct PartitionImpl<'a, Comp: Comparator> {
     lower_bound: Option<UserKey<Comp>>,
     upper_bound: Option<UserKey<Comp>>,
 
-    sem: Semaphore,
-
     options: &'a Options
 }
 
-impl<'a, Comp: Comparator> PartitionImpl<'a, Comp> {
+impl<'a, Comp: Comparator> PartitionData<'a, Comp> {
     fn new(options: &'a Options) -> Self {
         Self {
             mem_table: MemTable::new(),
@@ -214,40 +246,31 @@ impl<'a, Comp: Comparator> PartitionImpl<'a, Comp> {
             levels: Vec::new(),
             lower_bound: None,
             upper_bound: None,
-            sem: Semaphore,
             options
         }
     }
 
-    fn get(&self, key: InternalKey<Comp>) -> Option<Vec<u8>> {
-        if let Some(v) = self.mem_table.get(&key) {
-            return Some(v.clone());
-        }
-        if let Some(imm) = &self.imm_table {
-            if let Some(v) = imm.get(&key) {
-                return Some(v.clone());
-            }
-        }
-        unimplemented!()
+    fn has_imm(&self) -> bool {
+        self.imm_table.is_some()
     }
 
-    fn put(&mut self, key: InternalKey<Comp>, value: Vec<u8>) {
-        debug_assert!(key.user_key.is_owned());
-
-        let kv_size = key.user_key.key().len() + value.len() + TABLE_CATALOG_ITEM_SIZE;
-        if self.memtable_size() + kv_size > self.options.table_size {
-            let guard = self.sem.access();
-            assert!(self.imm_table.is_none());
-
-            // TODO MakeRoomForWrite
-            // TODO schedule the compaction, requires a `BackgroundTaskManager`.
-        }
-
-        if self.lower_bound == None && self.upper_bound == None {
-            self.lower_bound.replace(key.user_key.clone());
-            self.upper_bound.replace(key.user_key.clone());
+    fn memtable_put(&mut self, key: InternalKey<Comp>, value: Vec<u8>) {
+        debug_assert!(self.memtable_size() + kv_pair_size(&key, &value) <= self.options.table_size);
+        if self.lower_bound.is_none() && self.upper_bound.is_none() {
+            self.set_lower_bound(key.user_key.clone());
+            self.set_upper_bound(key.user_key.clone());
+        } else if &key.user_key < self.lower_bound.as_ref().unwrap() {
+            self.set_lower_bound(key.user_key.clone());
+        } else if &key.user_key > self.upper_bound.as_ref().unwrap() {
+            self.set_upper_bound(key.user_key.clone());
         }
         self.mem_table.insert(key, value);
+    }
+
+    fn convert_mem_to_imm(&mut self) {
+        let new_imm = std::mem::replace(&mut self.mem_table, MemTable::new());
+        self.imm_table.replace(new_imm);
+
     }
 
     fn memtable_size(&self) -> usize {
