@@ -258,6 +258,7 @@ impl<'a, Comp: 'static + Comparator> ArcPartition<'a, Comp> {
             data.levels[0].add_file(table);
             // TODO flush metadata onto disk
             let _ = data.imm_table.take();
+            partition.condvar.notify_one();
         }
         // TODO check if it is required to schedule another compaction from level 1 to level 2
     }
