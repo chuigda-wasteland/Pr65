@@ -1,16 +1,19 @@
 use std::collections::BTreeMap;
-use std::sync::{Mutex, RwLock, atomic::AtomicU64, Condvar, Arc};
+use std::sync::{Mutex, atomic::AtomicU64, Condvar, Arc};
 use std::marker::PhantomData;
 use std::cmp::Ordering;
 use std::ptr::NonNull;
-use std::ops::Deref;
-use std_semaphore::Semaphore;
 
 use crate::{Comparator, Options, DefaultComparator};
-use crate::table::{Table, tablefmt::{TABLE_CATALOG_ITEM_SIZE, TABLE_MIN_SIZE}};
+use crate::table::tablefmt::{TABLE_CATALOG_ITEM_SIZE, TABLE_MIN_SIZE};
+use crate::table::builder::ScTableBuilder;
 use crate::table::cache::TableCacheManager;
 use crate::io::IOManager;
 use crate::error::Error;
+use crate::partition::level::Level;
+use crate::table::sctable::ScTable;
+
+mod level;
 
 pub(crate) enum UserKey<Comp: Comparator> {
     Owned(Vec<u8>, PhantomData<Comp>),
@@ -111,9 +114,7 @@ impl<Comp: Comparator> Eq for InternalKey<Comp> {}
 
 type MemTable<Comp> = BTreeMap<InternalKey<Comp>, Vec<u8>>;
 
-type Level<Comp> = Vec<Box<dyn Table<Comp>>>;
-
-pub(crate) struct Partition<'a, Comp: Comparator> {
+pub(crate) struct Partition<'a, Comp: 'static + Comparator> {
     data: Mutex<PartitionData<'a, Comp>>,
     condvar: Condvar,
 
@@ -123,7 +124,7 @@ pub(crate) struct Partition<'a, Comp: Comparator> {
     options: &'a Options
 }
 
-impl<'a, Comp: Comparator> Partition<'a, Comp> {
+impl<'a, Comp: 'static + Comparator> Partition<'a, Comp> {
     fn new(options: &'a Options,
            seq: &'a AtomicU64,
            cache_manager: &'a TableCacheManager,
@@ -198,17 +199,17 @@ fn kv_pair_size<Comp>(key: &InternalKey<Comp>, value: &[u8]) -> usize
 }
 
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq)]
-struct ArcPartition<'a, Comp: Comparator>(Arc<Partition<'a, Comp>>);
+struct ArcPartition<'a, Comp: 'static + Comparator>(Arc<Partition<'a, Comp>>);
 
-impl<'a, Comp: Comparator> ArcPartition<'a, Comp> {
+impl<'a, Comp: 'static + Comparator> ArcPartition<'a, Comp> {
     fn write(&self, key: InternalKey<Comp>, value: Vec<u8>) -> Result<(), Error> {
-        let p = &self.0;
-        let mut data = p.data.lock().unwrap();
+        let partition = &self.0;
+        let mut data = partition.data.lock().unwrap();
         loop {
-            if data.memtable_size() + kv_pair_size(&key, &value) <= p.options.table_size {
+            if data.memtable_size() + kv_pair_size(&key, &value) <= partition.options.table_size {
                 break;
             } else if data.has_imm() {
-                data = p.condvar.wait(data).unwrap();
+                data = partition.condvar.wait(data).unwrap();
             } else {
                 data.convert_mem_to_imm();
                 // TODO run self.do_compaction() at background
@@ -219,12 +220,13 @@ impl<'a, Comp: Comparator> ArcPartition<'a, Comp> {
         Ok(())
     }
 
-    fn do_compaction(&self) {
-        unimplemented!()
+    fn compact_memtable(&self) {
+        let partition = &self.0;
+
     }
 }
 
-pub(crate) struct PartitionData<'a, Comp: Comparator> {
+pub(crate) struct PartitionData<'a, Comp: 'static + Comparator> {
     mem_table: MemTable<Comp>,
     mem_table_data_size: usize,
 
@@ -234,10 +236,12 @@ pub(crate) struct PartitionData<'a, Comp: Comparator> {
     lower_bound: Option<UserKey<Comp>>,
     upper_bound: Option<UserKey<Comp>>,
 
+    background_error: Option<Error>,
+
     options: &'a Options
 }
 
-impl<'a, Comp: Comparator> PartitionData<'a, Comp> {
+impl<'a, Comp: 'static + Comparator> PartitionData<'a, Comp> {
     fn new(options: &'a Options) -> Self {
         Self {
             mem_table: MemTable::new(),
@@ -246,12 +250,42 @@ impl<'a, Comp: Comparator> PartitionData<'a, Comp> {
             levels: Vec::new(),
             lower_bound: None,
             upper_bound: None,
+            background_error: None,
             options
         }
     }
 
+    fn background_error(&self) -> Result<(), Error> {
+        if let Some(e) = &self.background_error {
+            Err(e.clone())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn record_background_error(&mut self, error: Error) {
+        self.background_error.replace(error);
+    }
+
     fn has_imm(&self) -> bool {
         self.imm_table.is_some()
+    }
+
+    fn imm_bounds(&self) -> (&UserKey<Comp>, &UserKey<Comp>) {
+        unimplemented!()
+    }
+
+    fn imm_data(&self) -> Vec<u8> {
+        let mut table_builder = ScTableBuilder::new();
+        for (k, v) in self.imm_table.as_ref().unwrap() {
+            table_builder.add_kv(k.seq, &k.user_key.key(), v);
+        }
+        table_builder.build()
+    }
+
+    fn replace_imm_with_table(&mut self, table: ScTable<Comp>) {
+        let _ = self.imm_table.take();
+        self.levels[0].add_file(table);
     }
 
     fn memtable_put(&mut self, key: InternalKey<Comp>, value: Vec<u8>) {
@@ -270,7 +304,6 @@ impl<'a, Comp: Comparator> PartitionData<'a, Comp> {
     fn convert_mem_to_imm(&mut self) {
         let new_imm = std::mem::replace(&mut self.mem_table, MemTable::new());
         self.imm_table.replace(new_imm);
-
     }
 
     fn memtable_size(&self) -> usize {

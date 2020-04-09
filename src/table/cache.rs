@@ -13,7 +13,6 @@ use crate::encode::{encode_fixed32_ret, decode_fixed32, decode_fixed64, encode_f
 use crate::error::Error;
 use crate::Comparator;
 use crate::partition::{InternalKey, UserKey};
-use crate::table::Table;
 
 pub(crate) struct ScTableCatalogItem {
     pub(crate) key_seq: u64,

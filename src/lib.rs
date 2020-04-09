@@ -63,7 +63,7 @@ use partition::Partition;
 use crate::io::IOManager;
 use crate::table::cache::TableCacheManager;
 
-pub struct ScottDB<'a, Comp: Comparator> {
+pub struct ScottDB<'a, Comp: 'static + Comparator> {
     phantom: PhantomData<Comp>,
 
     options: Options,
@@ -73,7 +73,7 @@ pub struct ScottDB<'a, Comp: Comparator> {
     io_manager: IOManager,
 }
 
-impl<'a, Comp: Comparator> ScottDB<'a, Comp> {
+impl<'a, Comp: 'static + Comparator> ScottDB<'a, Comp> {
     pub fn new(options: Options) -> Self {
         let cache_count = options.cache_count;
         let max_open_files = options.max_open_files;

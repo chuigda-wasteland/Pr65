@@ -1,13 +1,13 @@
 use std::fmt::{Debug, Display, Formatter};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Error {
     ScTableCorrupt { reason: ErrorStr },
     ScSplitCorrupt { reason: ErrorStr },
     IOError { reason: ErrorStr, file: String }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ErrorStr {
     Owned(String),
     StaticBorrow(&'static str)

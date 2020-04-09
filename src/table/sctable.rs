@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::marker::PhantomData;
 
 use crate::error::Error;
 use crate::table::Table;

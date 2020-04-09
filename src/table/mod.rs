@@ -1,8 +1,8 @@
-mod builder;
-pub(crate) mod cache;
 pub mod tablefmt;
-mod sctable;
-mod scsplit;
+pub(crate) mod builder;
+pub(crate) mod cache;
+pub(crate) mod sctable;
+pub(crate) mod scsplit;
 
 use std::cmp::Ordering;
 
