@@ -15,7 +15,13 @@ pub(crate) struct ScTableFile {
 }
 
 impl ScTableFile {
-    fn file_name(&self) -> String {
+    pub(crate) fn new(origin_partition: u32, origin_level: u32, origin_number: u64) -> Self {
+        Self {
+            origin_partition, origin_level, origin_number
+        }
+    }
+
+    pub(crate) fn file_name(&self) -> String {
         format!("{}_{}_{}.sst", self.origin_partition, self.origin_level, self.origin_number)
     }
 }
@@ -25,6 +31,12 @@ pub(crate) struct ScTable<Comp: Comparator> {
 
     key_lower_bound: UserKey<Comp>,
     key_upper_bound: UserKey<Comp>
+}
+
+impl<Comp: Comparator> ScTable<Comp> {
+    pub(crate) fn new(table_file: ScTableFile, key_lower_bound: UserKey<Comp>, key_upper_bound: UserKey<Comp>) -> Self {
+        Self { table_file, key_lower_bound, key_upper_bound }
+    }
 }
 
 impl<Comp: Comparator> Table<Comp> for ScTable<Comp> {

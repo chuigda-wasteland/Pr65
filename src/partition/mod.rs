@@ -11,7 +11,7 @@ use crate::table::cache::TableCacheManager;
 use crate::io::IOManager;
 use crate::error::Error;
 use crate::partition::level::Level;
-use crate::table::sctable::ScTable;
+use crate::table::sctable::{ScTable, ScTableFile};
 
 mod level;
 
@@ -118,6 +118,8 @@ pub(crate) struct Partition<'a, Comp: 'static + Comparator> {
     data: Mutex<PartitionData<'a, Comp>>,
     condvar: Condvar,
 
+    partition_id: u32,
+
     seq: &'a AtomicU64,
     cache_manager: &'a TableCacheManager,
     io_manager: &'a IOManager,
@@ -126,12 +128,14 @@ pub(crate) struct Partition<'a, Comp: 'static + Comparator> {
 
 impl<'a, Comp: 'static + Comparator> Partition<'a, Comp> {
     fn new(options: &'a Options,
+           partition_id: u32,
            seq: &'a AtomicU64,
            cache_manager: &'a TableCacheManager,
            io_manager: &'a IOManager) -> Self {
         Self {
             data: Mutex::new(PartitionData::new(options)),
             condvar: Condvar::new(),
+            partition_id,
             seq,
             cache_manager,
             io_manager,
@@ -205,6 +209,7 @@ impl<'a, Comp: 'static + Comparator> ArcPartition<'a, Comp> {
     fn write(&self, key: InternalKey<Comp>, value: Vec<u8>) -> Result<(), Error> {
         let partition = &self.0;
         let mut data = partition.data.lock().unwrap();
+        data.background_error()?;
         loop {
             if data.memtable_size() + kv_pair_size(&key, &value) <= partition.options.table_size {
                 break;
@@ -222,7 +227,39 @@ impl<'a, Comp: 'static + Comparator> ArcPartition<'a, Comp> {
 
     fn compact_memtable(&self) {
         let partition = &self.0;
-
+        let buffer;
+        let file_number;
+        let imm_bounds;
+        {
+            let data = partition.data.lock().unwrap();
+            if data.background_error().is_err() {
+                return;
+            }
+            imm_bounds = data.imm_bounds();
+            let mut builder = ScTableBuilder::new();
+            for (k, v) in data.imm_table.unwrap().iter() {
+                builder.add_kv(k.seq, k.user_key.key(), &v);
+            }
+            buffer = builder.build();
+            if data.levels.len() == 0 {
+                data.levels.push(Level::new());
+            }
+            file_number = data.levels[0].level_next_file_id();
+        }
+        let table_file = ScTableFile::new(partition.partition_id, 0, file_number);
+        if let Err(e) = partition.io_manager.acquire_quota().write_file(table_file.file_name(), &buffer) {
+            partition.data.lock().unwrap().record_background_error(e);
+            return;
+        }
+        let (imm_lower, imm_upper) = imm_bounds;
+        let table = ScTable::new(table_file, imm_lower, imm_upper);
+        {
+            let data = partition.data.lock().unwrap();
+            data.levels[0].add_file(table);
+            // TODO flush metadata onto disk
+            let _ = data.imm_table.take();
+        }
+        // TODO check if it is required to schedule another compaction from level 1 to level 2
     }
 }
 
@@ -271,21 +308,11 @@ impl<'a, Comp: 'static + Comparator> PartitionData<'a, Comp> {
         self.imm_table.is_some()
     }
 
-    fn imm_bounds(&self) -> (&UserKey<Comp>, &UserKey<Comp>) {
-        unimplemented!()
-    }
-
-    fn imm_data(&self) -> Vec<u8> {
-        let mut table_builder = ScTableBuilder::new();
-        for (k, v) in self.imm_table.as_ref().unwrap() {
-            table_builder.add_kv(k.seq, &k.user_key.key(), v);
-        }
-        table_builder.build()
-    }
-
-    fn replace_imm_with_table(&mut self, table: ScTable<Comp>) {
-        let _ = self.imm_table.take();
-        self.levels[0].add_file(table);
+    fn imm_bounds(&self) -> (UserKey<Comp>, UserKey<Comp>) {
+        let imm_table = self.imm_table.as_ref().unwrap();
+        let (lower_bound, _) = imm_table.first_key_value().unwrap();
+        let (upper_bound, _) = imm_table.last_key_value().unwrap();
+        (lower_bound.user_key.clone(), upper_bound.user_key.clone())
     }
 
     fn memtable_put(&mut self, key: InternalKey<Comp>, value: Vec<u8>) {

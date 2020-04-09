@@ -1,5 +1,6 @@
 #![feature(fn_traits)]
 #![feature(with_options)]
+#![feature(map_first_last)]
 
 use std::cmp::Ordering;
 use std::marker::PhantomData;
