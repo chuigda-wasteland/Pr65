@@ -4,7 +4,8 @@ use std::fmt::{Debug, Display, Formatter};
 pub enum Error {
     ScTableCorrupt { reason: ErrorStr },
     ScSplitCorrupt { reason: ErrorStr },
-    IOError { reason: ErrorStr, file: String }
+    IOError { reason: ErrorStr, file: String },
+    RequiresExplode
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +37,10 @@ impl Error {
 
     pub(crate) fn io_error(reason: ErrorStr, file: String) -> Self {
         Error::IOError { reason, file }
+    }
+
+    pub(crate) fn requires_explode() -> Self {
+        Error::RequiresExplode
     }
 }
 

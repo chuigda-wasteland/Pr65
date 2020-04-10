@@ -12,6 +12,7 @@ use crate::io::IOManager;
 use crate::error::Error;
 use crate::partition::level::Level;
 use crate::table::sctable::{ScTable, ScTableFile};
+use std::sync::atomic::AtomicBool;
 
 mod level;
 
@@ -118,6 +119,8 @@ pub(crate) struct Partition<'a, Comp: 'static + Comparator> {
     data: Mutex<PartitionData<'a, Comp>>,
     condvar: Condvar,
 
+    under_explode: AtomicBool,
+
     partition_id: u32,
 
     seq: &'a AtomicU64,
@@ -135,12 +138,32 @@ impl<'a, Comp: 'static + Comparator> Partition<'a, Comp> {
         Self {
             data: Mutex::new(PartitionData::new(options)),
             condvar: Condvar::new(),
+            under_explode: AtomicBool::new(false),
             partition_id,
             seq,
             cache_manager,
             io_manager,
             options
         }
+    }
+
+    fn debug_never_eq_sanity_check(&self, other: &Self) -> bool {
+        if self as *const Self == other as *const Self {
+            return false;
+        }
+
+        let g1 = self.data.lock().unwrap();
+        let g2 = other.data.lock().unwrap();
+        let (self_lower, self_upper) = g1.bounds();
+        let (other_lower, other_upper) = g2.bounds();
+        if self_lower.is_some() && self_upper.is_some()
+            && other_lower.is_some() && other_upper.is_some()
+            && (self_lower.unwrap().cmp(other_lower.unwrap()) == Ordering::Equal
+            || self_upper.unwrap().cmp(other_upper.unwrap()) == Ordering::Equal) {
+            return false;
+        }
+
+        true
     }
 }
 
@@ -174,27 +197,6 @@ impl<'a, Comp: Comparator> PartialEq for Partition<'a, Comp> {
     }
 }
 
-impl<'a, Comp: Comparator> Partition<'a, Comp> {
-    fn debug_never_eq_sanity_check(&self, other: &Self) -> bool {
-        if self as *const Self == other as *const Self {
-            return false;
-        }
-
-        let g1 = self.data.lock().unwrap();
-        let g2 = other.data.lock().unwrap();
-        let (self_lower, self_upper) = g1.bounds();
-        let (other_lower, other_upper) = g2.bounds();
-        if self_lower.is_some() && self_upper.is_some()
-           && other_lower.is_some() && other_upper.is_some()
-           && (self_lower.unwrap().cmp(other_lower.unwrap()) == Ordering::Equal
-               || self_upper.unwrap().cmp(other_upper.unwrap()) == Ordering::Equal) {
-            return false;
-        }
-
-        true
-    }
-}
-
 impl<'a, Comp: Comparator> Eq for Partition<'a, Comp> {}
 
 fn kv_pair_size<Comp>(key: &InternalKey<Comp>, value: &[u8]) -> usize
@@ -211,6 +213,9 @@ impl<'a, Comp: 'static + Comparator> ArcPartition<'a, Comp> {
         let mut data = partition.data.lock().unwrap();
         data.background_error()?;
         loop {
+            if false /* TODO add proper condition here */ {
+                return Err(Error::requires_explode())
+            }
             if data.memtable_size() + kv_pair_size(&key, &value) <= partition.options.table_size {
                 break;
             } else if data.has_imm() {
@@ -223,6 +228,15 @@ impl<'a, Comp: 'static + Comparator> ArcPartition<'a, Comp> {
         }
         data.memtable_put(key, value);
         Ok(())
+    }
+
+    fn explode(&self) -> (ArcPartition<'a, Comp>, ArcPartition<'a, Comp>) {
+        let partition = &self.0;
+        let data = partition.data.lock().unwrap();
+        // TODO
+        // 1. explode last level
+        // 2. explode
+        unimplemented!()
     }
 
     fn compact_memtable(&self) {
@@ -249,6 +263,7 @@ impl<'a, Comp: 'static + Comparator> ArcPartition<'a, Comp> {
         let table_file = ScTableFile::new(partition.partition_id, 0, file_number);
         if let Err(e) = partition.io_manager.acquire_quota().write_file(table_file.file_name(), &buffer) {
             partition.data.lock().unwrap().record_background_error(e);
+            partition.condvar.notify_one();
             return;
         }
         let (imm_lower, imm_upper) = imm_bounds;
@@ -282,6 +297,7 @@ impl<'a, Comp: 'static + Comparator> ArcPartition<'a, Comp> {
             // 5. re-lock
             // 6. update metadata
             // 7. schedule another compaction
+            // 8. un-lock
             unimplemented!()
         }
     }
