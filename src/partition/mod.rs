@@ -205,10 +205,14 @@ fn kv_pair_size<Comp>(key: &InternalKey<Comp>, value: &[u8]) -> usize
 }
 
 #[derive(Clone, Ord, PartialOrd, Eq, PartialEq)]
-struct ArcPartition<'a, Comp: 'static + Comparator>(Arc<Partition<'a, Comp>>);
+pub(crate) struct ArcPartition<'a, Comp: 'static + Comparator>(Arc<Partition<'a, Comp>>);
 
 impl<'a, Comp: 'static + Comparator> ArcPartition<'a, Comp> {
-    fn write(&self, key: InternalKey<Comp>, value: Vec<u8>) -> Result<(), Error> {
+    pub(crate) fn new(partition: Partition<'a, Comp>) -> Self {
+        Self(Arc::new(partition))
+    }
+
+    pub(crate) fn write(&self, key: InternalKey<Comp>, value: Vec<u8>) -> Result<(), Error> {
         let partition = &self.0;
         let mut data = partition.data.lock().unwrap();
         data.background_error()?;
@@ -230,7 +234,7 @@ impl<'a, Comp: 'static + Comparator> ArcPartition<'a, Comp> {
         Ok(())
     }
 
-    fn explode(&self) -> (ArcPartition<'a, Comp>, ArcPartition<'a, Comp>) {
+    pub(crate) fn explode(&self) -> (ArcPartition<'a, Comp>, ArcPartition<'a, Comp>) {
         let partition = &self.0;
         let data = partition.data.lock().unwrap();
         // TODO
@@ -245,13 +249,13 @@ impl<'a, Comp: 'static + Comparator> ArcPartition<'a, Comp> {
         let file_number;
         let imm_bounds;
         {
-            let data = partition.data.lock().unwrap();
+            let mut data = partition.data.lock().unwrap();
             if data.background_error().is_err() {
                 return;
             }
             imm_bounds = data.imm_bounds();
             let mut builder = ScTableBuilder::new();
-            for (k, v) in data.imm_table.unwrap().iter() {
+            for (k, v) in data.imm_table.as_ref().unwrap().iter() {
                 builder.add_kv(k.seq, k.user_key.key(), &v);
             }
             buffer = builder.build();
@@ -269,7 +273,7 @@ impl<'a, Comp: 'static + Comparator> ArcPartition<'a, Comp> {
         let (imm_lower, imm_upper) = imm_bounds;
         let table = ScTable::new(table_file, imm_lower, imm_upper);
         {
-            let data = partition.data.lock().unwrap();
+            let mut data = partition.data.lock().unwrap();
             data.levels[0].add_file(table);
             // TODO flush metadata onto disk
             let _ = data.imm_table.take();

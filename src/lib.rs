@@ -60,20 +60,20 @@ impl Options {
     }
 
     fn level_size(&self, level: usize) -> usize {
-        self.level0_size * size_factor.pow(level)
+        self.level0_size * self.size_factor.pow(level as u32)
     }
 }
 
-use partition::Partition;
 use crate::io::IOManager;
 use crate::table::cache::TableCacheManager;
+use crate::partition::ArcPartition;
 
 pub struct ScottDB<'a, Comp: 'static + Comparator> {
     phantom: PhantomData<Comp>,
 
     options: Options,
     seq: AtomicU64,
-    partitions: VecDeque<Partition<'a, Comp>>,
+    partitions: VecDeque<ArcPartition<'a, Comp>>,
     cache_manager: TableCacheManager,
     io_manager: IOManager,
 }
