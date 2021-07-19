@@ -1,5 +1,5 @@
 [package]
-name = "scottdb"
+name = "pr65"
 version = "0.1.0"
 authors = ["ICEY <icey@icey.tech>"]
 edition = "2018"
